@@ -1,0 +1,21 @@
+{
+  "name": "homechat",
+  "version": "1.0.0",
+  "description": "Chat at home",
+  "main": "server.js",
+  "scripts": {
+    "test": "test"
+  },
+  "keywords": [
+    "home",
+    "chat"
+  ],
+  "author": "The Amber Joy",
+  "license": "ISC",
+  "dependencies": {
+    "socket.io": "latest",
+    "socket.io-client": "latest",
+    "ansi-color": "latest"
+  },
+  "private": true
+}
