@@ -34,8 +34,7 @@ function getThemeSoundPath(themeName, soundType) {
 // System sounds (not theme-dependent)
 var systemSounds = {
   hello: "./sounds/system/hello.mp3",
-  // Add more system sounds here:
-  // goodbye: "./sounds/system/goodbye.mp3"
+  goodbye: "./sounds/system/goodbye.mp3",
 };
 
 // Preloaded audio cache for instant playback
@@ -989,6 +988,14 @@ function handleMessage(data) {
       if (joinedUser.toLowerCase() !== nick.toLowerCase()) {
         playSystemSound("hello");
       }
+    }
+    // Play system sound for user leaves
+    if (
+      data.message.indexOf(" has disconnected") !== -1 ||
+      data.message.indexOf(" has left the chat") !== -1 ||
+      data.message.indexOf(" was kicked by ") !== -1
+    ) {
+      playSystemSound("goodbye");
     }
   } else if (
     data.type === "tell" &&
