@@ -13,6 +13,7 @@ var notificationSettings = JSON.parse(
   private: false,
   tagged: false,
   all: false,
+  system: false,
 };
 var notificationTheme = localStorage.getItem("notificationTheme") || "fard";
 
@@ -30,52 +31,58 @@ function getThemeSoundPath(themeName, soundType) {
   return "./sounds/" + themeName + "/" + soundType + "-" + themeName + ".mp3";
 }
 
+// System sounds (not theme-dependent)
+var systemSounds = {
+  hello: "./sounds/system/hello.mp3",
+  // Add more system sounds here:
+  // goodbye: "./sounds/system/goodbye.mp3"
+};
+
 // Preloaded audio cache for instant playback
-var preloadedSounds = {};
+var preloadedAudio = {};
 
-// Preload all sounds for a theme
-function preloadThemeSounds(themeName) {
-  if (!notificationThemes[themeName]) return;
+// Helper function to preload a single audio file
+function preloadAudio(key, url) {
+  var audio = new Audio(url);
+  audio.preload = "auto";
+  audio.load();
+  audio.volume = 0;
+  audio
+    .play()
+    .then(function () {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.volume = 1;
+    })
+    .catch(function () {
+      audio.volume = 1;
+    });
+  preloadedAudio[key] = audio;
+}
 
-  preloadedSounds[themeName] = {};
-  ["private", "mention", "chat"].forEach(function (soundType) {
-    var audio = new Audio(getThemeSoundPath(themeName, soundType));
-    audio.preload = "auto";
-    // Force the browser to fully load the audio
-    audio.load();
-    // Also try to decode by playing silently
-    audio.volume = 0;
-    audio
-      .play()
-      .then(function () {
-        audio.pause();
-        audio.currentTime = 0;
-        audio.volume = 1;
-      })
-      .catch(function () {
-        // Autoplay blocked, will load on first user interaction
-        audio.volume = 1;
-      });
-    preloadedSounds[themeName][soundType] = audio;
+// Preload all sounds on page load
+function preloadAllSounds() {
+  // Preload all theme sounds
+  Object.keys(notificationThemes).forEach(function (themeName) {
+    ["private", "mention", "chat"].forEach(function (soundType) {
+      var key = themeName + ":" + soundType;
+      preloadAudio(key, getThemeSoundPath(themeName, soundType));
+    });
+  });
+
+  // Preload system sounds
+  Object.keys(systemSounds).forEach(function (soundName) {
+    var key = "system:" + soundName;
+    preloadAudio(key, systemSounds[soundName]);
   });
 }
 
-// Preload current theme on page load
-preloadThemeSounds(notificationTheme);
+preloadAllSounds();
 
-// Play notification sound based on message type
-function playNotificationSound(soundType) {
-  if (!notificationThemes[notificationTheme]) {
-    console.log("Unknown notification theme:", notificationTheme);
-    return;
-  }
-
-  // Use preloaded audio if available - clone it for instant playback
-  var cachedTheme = preloadedSounds[notificationTheme];
-  if (cachedTheme && cachedTheme[soundType]) {
-    var original = cachedTheme[soundType];
-    // Clone the audio node for overlapping sounds and instant playback
-    var audio = original.cloneNode();
+// Helper to play a preloaded sound by key
+function playPreloadedSound(key, fallbackUrl) {
+  if (preloadedAudio[key]) {
+    var audio = preloadedAudio[key].cloneNode();
     audio.volume = 1;
     audio.play().catch(function (e) {
       console.log("Audio play failed:", e);
@@ -84,10 +91,31 @@ function playNotificationSound(soundType) {
   }
 
   // Fallback: create new Audio (will have delay)
-  var audio = new Audio(getThemeSoundPath(notificationTheme, soundType));
-  audio.play().catch(function (e) {
-    console.log("Audio play failed:", e);
-  });
+  if (fallbackUrl) {
+    var audio = new Audio(fallbackUrl);
+    audio.play().catch(function (e) {
+      console.log("Audio play failed:", e);
+    });
+  }
+}
+
+// Play notification sound based on message type
+function playNotificationSound(soundType) {
+  if (!notificationThemes[notificationTheme]) {
+    console.log("Unknown notification theme:", notificationTheme);
+    return;
+  }
+
+  var key = notificationTheme + ":" + soundType;
+  playPreloadedSound(key, getThemeSoundPath(notificationTheme, soundType));
+}
+
+// Play a system sound
+function playSystemSound(soundName) {
+  if (!notificationSettings.system) return;
+
+  var key = "system:" + soundName;
+  playPreloadedSound(key, systemSounds[soundName]);
 }
 
 // Update bell icon based on notification settings
@@ -97,7 +125,8 @@ function updateBellIcon() {
     var anyEnabled =
       notificationSettings.private ||
       notificationSettings.tagged ||
-      notificationSettings.all;
+      notificationSettings.all ||
+      notificationSettings.system;
     var iconName = anyEnabled ? "bell" : "bell-off";
     button.innerHTML = '<i data-feather="' + iconName + '"></i>';
     if (typeof feather !== "undefined") {
@@ -276,10 +305,12 @@ function joinChat() {
   var privateCheckbox = document.getElementById("notify-private");
   var taggedCheckbox = document.getElementById("notify-tagged");
   var allCheckbox = document.getElementById("notify-all");
+  var systemCheckbox = document.getElementById("notify-system");
 
   if (privateCheckbox) privateCheckbox.checked = notificationSettings.private;
   if (taggedCheckbox) taggedCheckbox.checked = notificationSettings.tagged;
   if (allCheckbox) allCheckbox.checked = notificationSettings.all;
+  if (systemCheckbox) systemCheckbox.checked = notificationSettings.system;
 
   // Update bell icon based on saved settings
   updateBellIcon();
@@ -311,6 +342,12 @@ function joinChat() {
       saveNotificationSettings();
     });
   }
+  if (systemCheckbox) {
+    systemCheckbox.addEventListener("change", function () {
+      notificationSettings.system = this.checked;
+      saveNotificationSettings();
+    });
+  }
 
   // Initialize notification theme dropdown
   var themeSelect = document.getElementById("notification-theme");
@@ -319,8 +356,6 @@ function joinChat() {
     themeSelect.addEventListener("change", function () {
       notificationTheme = this.value;
       localStorage.setItem("notificationTheme", notificationTheme);
-      // Preload sounds for the new theme
-      preloadThemeSounds(notificationTheme);
     });
   }
 
@@ -740,6 +775,17 @@ function getUserColor(username) {
   return color;
 }
 
+/**
+ * Handles incoming socket messages and displays them in the chat.
+ * Also triggers notification sounds based on message type and user settings.
+ *
+ * @param {Object} data - The message data from the server
+ * @param {string} data.type - Message type: "chat", "notice", "tell", or "emote"
+ * @param {string} data.message - The message content
+ * @param {string} [data.nick] - Sender's nickname (for chat messages)
+ * @param {string} [data.from] - Sender's nickname (for tell/private messages)
+ * @param {string} [data.to] - Recipient's nickname (for tell/private messages)
+ */
 function handleMessage(data) {
   if (data.type === "chat" && data.nick !== nick) {
     addMessage("<" + data.nick + "> " + data.message, "chat", data.nick);
@@ -750,6 +796,14 @@ function handleMessage(data) {
     }
   } else if (data.type === "notice") {
     addMessage(data.message, "notice");
+    // Play system sound for user joins (but not for ourselves)
+    if (data.message.indexOf(" has joined the chat") !== -1) {
+      // Extract the username from the message
+      var joinedUser = data.message.replace(" has joined the chat", "");
+      if (joinedUser.toLowerCase() !== nick.toLowerCase()) {
+        playSystemSound("hello");
+      }
+    }
   } else if (
     data.type === "tell" &&
     data.to.toLowerCase() === nick.toLowerCase()
