@@ -222,10 +222,14 @@ function joinChat() {
     }
   });
 
-  // Send join message
-  socket.emit("send", {
-    type: "notice",
-    message: nick + " has joined the chat",
+  // Handle registration response - only announce join if not a quiet reconnect
+  socket.on("registered", function (data) {
+    if (!data.quiet) {
+      socket.emit("send", {
+        type: "notice",
+        message: nick + " has joined the chat",
+      });
+    }
   });
 
   // Show chat screen

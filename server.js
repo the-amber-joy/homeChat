@@ -78,6 +78,10 @@ var io = socketio(server, {
 // Track connected users
 var users = {};
 
+// Track pending disconnections (for grace period on refresh)
+var pendingDisconnects = {};
+var DISCONNECT_GRACE_PERIOD = 5000; // 5 seconds
+
 // App version - increment this when you want clients to reload
 var appVersion = "1.0.0";
 
@@ -95,8 +99,25 @@ io.on("connection", function (socket) {
 
   // Handle user registration
   socket.on("register", function (nickname) {
-    users[socket.id] = nickname;
-    io.emit("userList", Object.values(users));
+    var lowerNick = nickname.toLowerCase();
+
+    // Check if this user is reconnecting within the grace period
+    if (pendingDisconnects[lowerNick]) {
+      // Cancel the pending disconnect notification
+      clearTimeout(pendingDisconnects[lowerNick]);
+      delete pendingDisconnects[lowerNick];
+      // Just register without announcing join
+      users[socket.id] = nickname;
+      io.emit("userList", Object.values(users));
+      // Tell client this was a quiet reconnect
+      socket.emit("registered", { quiet: true });
+    } else {
+      // New connection - register normally
+      users[socket.id] = nickname;
+      io.emit("userList", Object.values(users));
+      // Tell client to announce join
+      socket.emit("registered", { quiet: false });
+    }
   });
 
   // Handle nickname changes
@@ -144,12 +165,18 @@ io.on("connection", function (socket) {
   socket.on("disconnect", function () {
     if (users[socket.id]) {
       var nick = users[socket.id];
+      var lowerNick = nick.toLowerCase();
       delete users[socket.id];
       io.emit("userList", Object.values(users));
-      io.emit("message", {
-        type: "notice",
-        message: nick + " has disconnected",
-      });
+
+      // Use grace period before announcing disconnect
+      pendingDisconnects[lowerNick] = setTimeout(function () {
+        delete pendingDisconnects[lowerNick];
+        io.emit("message", {
+          type: "notice",
+          message: nick + " has disconnected",
+        });
+      }, DISCONNECT_GRACE_PERIOD);
     }
   });
 });
