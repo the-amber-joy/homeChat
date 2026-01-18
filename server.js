@@ -3,6 +3,37 @@ var http = require("http");
 var fs = require("fs");
 var path = require("path");
 
+// After Dark admin password from environment variable
+var AFTERDARK_ADMIN_PASSWORD = process.env.AFTERDARK_ADMIN_PASSWORD || null;
+
+// Authorized devices file path
+var AUTHORIZED_DEVICES_FILE = path.join(__dirname, "authorized-devices.json");
+
+// Load authorized devices from file
+function loadAuthorizedDevices() {
+  try {
+    if (fs.existsSync(AUTHORIZED_DEVICES_FILE)) {
+      var data = fs.readFileSync(AUTHORIZED_DEVICES_FILE, "utf8");
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error("Error loading authorized devices:", err);
+  }
+  return [];
+}
+
+// Save authorized devices to file
+function saveAuthorizedDevices(devices) {
+  try {
+    fs.writeFileSync(AUTHORIZED_DEVICES_FILE, JSON.stringify(devices, null, 2));
+  } catch (err) {
+    console.error("Error saving authorized devices:", err);
+  }
+}
+
+// Authorized device IDs for After Dark access
+var authorizedDevices = loadAuthorizedDevices();
+
 // Create HTTP server and Socket.IO instance
 var server = http.createServer(function (req, res) {
   if (req.url === "/" || req.url === "/index.html") {
@@ -75,15 +106,22 @@ var io = socketio(server, {
   pingInterval: 25000, // Ping every 25 seconds
 });
 
-// Track connected users: { lowerNick: { nick, socketId, idle } }
-var users = {};
+// Create namespaces
+var homeNamespace = io.of("/");
+var afterDarkNamespace = io.of("/afterdark");
 
-// Track pending disconnect timers
-var pendingDisconnects = {};
+// Track connected users per namespace: { lowerNick: { nick, socketId, idle } }
+var homeUsers = {};
+var afterDarkUsers = {};
+
+// Track pending disconnect timers per namespace
+var homePendingDisconnects = {};
+var afterDarkPendingDisconnects = {};
+
 var DISCONNECT_GRACE_PERIOD = 5000; // 5 seconds
 
 // Helper to build user list for clients
-function getUserList() {
+function getUserList(users) {
   var list = [];
   for (var lowerNick in users) {
     list.push({
@@ -95,7 +133,7 @@ function getUserList() {
 }
 
 // Helper to find user by socket ID
-function findUserBySocketId(socketId) {
+function findUserBySocketId(users, socketId) {
   for (var lowerNick in users) {
     if (users[lowerNick].socketId === socketId) {
       return { lowerNick: lowerNick, user: users[lowerNick] };
@@ -110,135 +148,271 @@ var appVersion = "1.0.1";
 // Listen on port 3010 on all network interfaces
 server.listen(3010, "0.0.0.0", function () {
   console.log("Server listening on port 3010");
+  if (AFTERDARK_ADMIN_PASSWORD) {
+    console.log("After Dark is enabled (admin password set)");
+  } else {
+    console.log("After Dark is disabled (no admin password set)");
+  }
 });
 
-io.on("connection", function (socket) {
-  var clientIp = socket.handshake.address;
-  console.log("A user connected from: " + clientIp);
+// Setup connection handlers for a namespace
+function setupNamespace(namespace, users, pendingDisconnects, instanceName) {
+  namespace.on("connection", function (socket) {
+    var clientIp = socket.handshake.address;
+    console.log("[" + instanceName + "] User connected from: " + clientIp);
 
-  // Send app version to client
-  socket.emit("version", appVersion);
+    // Send app version to client
+    socket.emit("version", appVersion);
 
-  // Handle user registration
-  socket.on("register", function (nickname) {
-    var lowerNick = nickname.toLowerCase();
+    // Handle user registration
+    socket.on("register", function (data) {
+      var nickname = typeof data === "string" ? data : data.nickname;
+      var deviceId = typeof data === "object" ? data.deviceId : null;
+      var lowerNick = nickname.toLowerCase();
 
-    // Check if this user is reconnecting (was idle or has pending disconnect)
-    if (users[lowerNick] && users[lowerNick].idle) {
-      // Cancel the pending disconnect timer
-      if (pendingDisconnects[lowerNick]) {
+      // Check if this user is reconnecting (was idle or has pending disconnect)
+      if (users[lowerNick] && users[lowerNick].idle) {
+        // Cancel the pending disconnect timer
+        if (pendingDisconnects[lowerNick]) {
+          clearTimeout(pendingDisconnects[lowerNick]);
+          delete pendingDisconnects[lowerNick];
+        }
+        // Update socket ID and mark as active
+        users[lowerNick].socketId = socket.id;
+        users[lowerNick].idle = false;
+        namespace.emit("userList", getUserList(users));
+        // Tell client this was a quiet reconnect
+        socket.emit("registered", { quiet: true });
+      } else if (pendingDisconnects[lowerNick]) {
+        // Reconnecting during grace period (before marked idle)
         clearTimeout(pendingDisconnects[lowerNick]);
         delete pendingDisconnects[lowerNick];
+        users[lowerNick] = {
+          nick: nickname,
+          socketId: socket.id,
+          idle: false,
+          deviceId: deviceId,
+        };
+        namespace.emit("userList", getUserList(users));
+        socket.emit("registered", { quiet: true });
+      } else {
+        // New connection - register normally
+        users[lowerNick] = {
+          nick: nickname,
+          socketId: socket.id,
+          idle: false,
+          deviceId: deviceId,
+        };
+        namespace.emit("userList", getUserList(users));
+        // Tell client to announce join
+        socket.emit("registered", { quiet: false });
       }
-      // Update socket ID and mark as active
-      users[lowerNick].socketId = socket.id;
-      users[lowerNick].idle = false;
-      io.emit("userList", getUserList());
-      // Tell client this was a quiet reconnect
-      socket.emit("registered", { quiet: true });
-    } else if (pendingDisconnects[lowerNick]) {
-      // Reconnecting during grace period (before marked idle)
-      clearTimeout(pendingDisconnects[lowerNick]);
-      delete pendingDisconnects[lowerNick];
-      users[lowerNick] = { nick: nickname, socketId: socket.id, idle: false };
-      io.emit("userList", getUserList());
-      socket.emit("registered", { quiet: true });
-    } else {
-      // New connection - register normally
-      users[lowerNick] = { nick: nickname, socketId: socket.id, idle: false };
-      io.emit("userList", getUserList());
-      // Tell client to announce join
-      socket.emit("registered", { quiet: false });
-    }
+    });
+
+    // Handle nickname changes
+    socket.on("changeNick", function (newNick) {
+      var found = findUserBySocketId(users, socket.id);
+      if (found) {
+        // Remove old entry and create new one
+        var oldLowerNick = found.lowerNick;
+        var deviceId = users[oldLowerNick].deviceId;
+        delete users[oldLowerNick];
+        var newLowerNick = newNick.toLowerCase();
+        users[newLowerNick] = {
+          nick: newNick,
+          socketId: socket.id,
+          idle: false,
+          deviceId: deviceId,
+        };
+        namespace.emit("userList", getUserList(users));
+      }
+    });
+
+    // Broadcast a user's message to everyone else in the room
+    socket.on("send", function (data) {
+      namespace.emit("message", data);
+    });
+
+    // Handle kick command
+    socket.on("kick", function (targetNick) {
+      var found = findUserBySocketId(users, socket.id);
+      var kickerNick = found ? found.user.nick : "Unknown";
+      var lowerTargetNick = targetNick.toLowerCase();
+
+      if (users[lowerTargetNick]) {
+        var targetUser = users[lowerTargetNick];
+        var actualNick = targetUser.nick;
+        // Mark as kicked to skip grace period on disconnect
+        pendingDisconnects[lowerTargetNick] = "kicked";
+        // Notify everyone about the kick
+        namespace.emit("message", {
+          type: "notice",
+          message: actualNick + " was kicked by " + kickerNick,
+        });
+        // Tell the kicked user they were kicked (they will disconnect themselves)
+        namespace.to(targetUser.socketId).emit("kicked", kickerNick);
+      } else {
+        // User not found, notify only the kicker
+        socket.emit("message", {
+          type: "help",
+          message: "User '" + targetNick + "' not found.",
+        });
+      }
+    });
+
+    // Handle intentional exit (skip grace period)
+    socket.on("exit", function () {
+      var found = findUserBySocketId(users, socket.id);
+      if (found) {
+        // Mark this user as intentionally exiting
+        pendingDisconnects[found.lowerNick] = "intentional";
+      }
+    });
+
+    // Handle disconnection
+    socket.on("disconnect", function () {
+      var found = findUserBySocketId(users, socket.id);
+      if (found) {
+        var nick = found.user.nick;
+        var lowerNick = found.lowerNick;
+
+        // Check if this was an intentional exit or kick
+        if (
+          pendingDisconnects[lowerNick] === "intentional" ||
+          pendingDisconnects[lowerNick] === "kicked"
+        ) {
+          // Clean up - remove user immediately, no disconnect message
+          delete users[lowerNick];
+          delete pendingDisconnects[lowerNick];
+          namespace.emit("userList", getUserList(users));
+        } else {
+          // Mark user as idle and start grace period
+          users[lowerNick].idle = true;
+          users[lowerNick].socketId = null;
+          namespace.emit("userList", getUserList(users));
+
+          // After grace period, remove user and announce disconnect
+          pendingDisconnects[lowerNick] = setTimeout(function () {
+            delete pendingDisconnects[lowerNick];
+            delete users[lowerNick];
+            namespace.emit("userList", getUserList(users));
+            namespace.emit("message", {
+              type: "notice",
+              message: nick + " has disconnected",
+            });
+          }, DISCONNECT_GRACE_PERIOD);
+        }
+      }
+    });
   });
+}
 
-  // Handle nickname changes
-  socket.on("changeNick", function (newNick) {
-    var found = findUserBySocketId(socket.id);
-    if (found) {
-      // Remove old entry and create new one
-      var oldLowerNick = found.lowerNick;
-      delete users[oldLowerNick];
-      var newLowerNick = newNick.toLowerCase();
-      users[newLowerNick] = { nick: newNick, socketId: socket.id, idle: false };
-      io.emit("userList", getUserList());
-    }
-  });
+// Setup Home Chat namespace
+setupNamespace(homeNamespace, homeUsers, homePendingDisconnects, "Home");
 
-  // Broadcast a user's message to everyone else in the room
-  socket.on("send", function (data) {
-    io.emit("message", data);
-  });
+// Setup After Dark namespace with authentication middleware
+afterDarkNamespace.use(function (socket, next) {
+  var deviceId = socket.handshake.auth.deviceId;
+  var adminPassword = socket.handshake.auth.adminPassword;
 
-  // Handle kick command
-  socket.on("kick", function (targetNick) {
-    var found = findUserBySocketId(socket.id);
-    var kickerNick = found ? found.user.nick : "Unknown";
-    var lowerTargetNick = targetNick.toLowerCase();
+  // Check if admin password is configured
+  if (!AFTERDARK_ADMIN_PASSWORD) {
+    return next(new Error("After Dark is not enabled"));
+  }
 
-    if (users[lowerTargetNick]) {
-      var targetUser = users[lowerTargetNick];
-      var actualNick = targetUser.nick;
-      // Mark as kicked to skip grace period on disconnect
-      pendingDisconnects[lowerTargetNick] = "kicked";
-      // Notify everyone about the kick
-      io.emit("message", {
-        type: "notice",
-        message: actualNick + " was kicked by " + kickerNick,
-      });
-      // Tell the kicked user they were kicked (they will disconnect themselves)
-      io.to(targetUser.socketId).emit("kicked", kickerNick);
-    } else {
-      // User not found, notify only the kicker
+  // Allow if valid admin password provided
+  if (adminPassword && adminPassword === AFTERDARK_ADMIN_PASSWORD) {
+    socket.isAdmin = true;
+    return next();
+  }
+
+  // Allow if device is authorized
+  if (deviceId && authorizedDevices.indexOf(deviceId) !== -1) {
+    socket.isAdmin = false;
+    return next();
+  }
+
+  return next(new Error("Not authorized for After Dark"));
+});
+
+setupNamespace(
+  afterDarkNamespace,
+  afterDarkUsers,
+  afterDarkPendingDisconnects,
+  "AfterDark",
+);
+
+// Add invite command handler for After Dark
+afterDarkNamespace.on("connection", function (socket) {
+  // Notify client of their admin status
+  socket.emit("afterDarkAccess", true, socket.isAdmin);
+
+  socket.on("invite", function (targetNick) {
+    if (!socket.isAdmin) {
       socket.emit("message", {
         type: "help",
-        message: "User '" + targetNick + "' not found.",
+        message: "Only admins can invite users.",
+      });
+      return;
+    }
+
+    var lowerTargetNick = targetNick.toLowerCase();
+
+    // Find the target user in Home Chat to get their device ID
+    if (homeUsers[lowerTargetNick]) {
+      var targetDeviceId = homeUsers[lowerTargetNick].deviceId;
+      if (targetDeviceId && authorizedDevices.indexOf(targetDeviceId) === -1) {
+        authorizedDevices.push(targetDeviceId);
+        saveAuthorizedDevices(authorizedDevices);
+        socket.emit("message", {
+          type: "notice",
+          message:
+            "Invited " + homeUsers[lowerTargetNick].nick + " to After Dark.",
+        });
+        // Notify the invited user in Home Chat that they now have access
+        if (homeUsers[lowerTargetNick].socketId) {
+          homeNamespace
+            .to(homeUsers[lowerTargetNick].socketId)
+            .emit("afterDarkAccess", true);
+        }
+      } else if (authorizedDevices.indexOf(targetDeviceId) !== -1) {
+        socket.emit("message", {
+          type: "help",
+          message: "User is already authorized for After Dark.",
+        });
+      } else {
+        socket.emit("message", {
+          type: "help",
+          message: "Could not get device ID for user.",
+        });
+      }
+    } else {
+      socket.emit("message", {
+        type: "help",
+        message: "User '" + targetNick + "' not found in Home Chat.",
       });
     }
   });
+});
 
-  // Handle intentional exit (skip grace period)
-  socket.on("exit", function () {
-    var found = findUserBySocketId(socket.id);
-    if (found) {
-      // Mark this user as intentionally exiting
-      pendingDisconnects[found.lowerNick] = "intentional";
-    }
-  });
+// Add endpoint to check After Dark access
+homeNamespace.on("connection", function (socket) {
+  socket.on("checkAfterDarkAccess", function (data) {
+    var deviceId = data.deviceId;
+    var adminPassword = data.adminPassword;
 
-  // Handle disconnection
-  socket.on("disconnect", function () {
-    var found = findUserBySocketId(socket.id);
-    if (found) {
-      var nick = found.user.nick;
-      var lowerNick = found.lowerNick;
+    var hasAccess = false;
+    var isAdmin = false;
 
-      // Check if this was an intentional exit or kick
-      if (
-        pendingDisconnects[lowerNick] === "intentional" ||
-        pendingDisconnects[lowerNick] === "kicked"
-      ) {
-        // Clean up - remove user immediately, no disconnect message
-        delete users[lowerNick];
-        delete pendingDisconnects[lowerNick];
-        io.emit("userList", getUserList());
-      } else {
-        // Mark user as idle and start grace period
-        users[lowerNick].idle = true;
-        users[lowerNick].socketId = null;
-        io.emit("userList", getUserList());
-
-        // After grace period, remove user and announce disconnect
-        pendingDisconnects[lowerNick] = setTimeout(function () {
-          delete pendingDisconnects[lowerNick];
-          delete users[lowerNick];
-          io.emit("userList", getUserList());
-          io.emit("message", {
-            type: "notice",
-            message: nick + " has disconnected",
-          });
-        }, DISCONNECT_GRACE_PERIOD);
+    if (AFTERDARK_ADMIN_PASSWORD) {
+      if (adminPassword && adminPassword === AFTERDARK_ADMIN_PASSWORD) {
+        hasAccess = true;
+        isAdmin = true;
+      } else if (deviceId && authorizedDevices.indexOf(deviceId) !== -1) {
+        hasAccess = true;
       }
     }
+
+    socket.emit("afterDarkAccess", hasAccess, isAdmin);
   });
 });

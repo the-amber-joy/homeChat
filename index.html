@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Home Chat</title>
   <link rel="icon"
-    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><polygon points='50,10 90,50 75,50 75,90 25,90 25,50 10,50' fill='%234ec9b0'/><rect x='40' y='60' width='20' height='30' fill='%231e1e1e'/></svg>" />
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%234ec9b0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'></path><polyline points='9 22 9 12 15 12 15 22'></polyline></svg>" />
   <link rel="stylesheet" href="./style.css" />
   <script src="https://unpkg.com/feather-icons"></script>
   <script>
@@ -39,6 +39,7 @@
     <div id="header">
       <h1>Home Chat - <span id="current-nick"></span></h1>
       <div id="header-buttons">
+        <button id="afterdark-toggle" style="display: none;"><i data-feather="moon"></i></button>
         <button id="audio-button"><i data-feather="bell"></i></button>
         <button id="users-button">Online (<span id="user-count">0</span>)</button>
       </div>

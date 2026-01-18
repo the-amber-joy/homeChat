@@ -6,6 +6,17 @@ var currentUserList = [];
 var clientVersion = localStorage.getItem("appVersion") || null;
 var userColorCache = {}; // Cache colors by username to persist across nick changes
 
+// Device ID for persistent identification (used for After Dark authorization)
+var deviceId = localStorage.getItem("deviceId");
+if (!deviceId) {
+  deviceId =
+    "device_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+  localStorage.setItem("deviceId", deviceId);
+}
+
+// Current chat instance: "home" or "afterdark"
+var currentInstance = "home";
+
 // Notification settings - each type can be enabled independently
 var notificationSettings = JSON.parse(
   localStorage.getItem("notificationSettings"),
@@ -172,8 +183,13 @@ function shouldPlayNotification(messageType, messageText) {
   return getNotificationSoundType(messageType, messageText) !== null;
 }
 
-// Check if user has a saved nickname
-var savedNick = localStorage.getItem("chatNickname");
+// After Dark access state
+var hasAfterDarkAccess = false;
+var isAfterDarkAdmin = false;
+var afterDarkAdminPassword = null; // Only set if user enters admin password
+
+// Check if user has a saved nickname for this instance
+var savedNick = localStorage.getItem("chatNickname_" + currentInstance);
 if (savedNick) {
   document.getElementById("nickname-input").value = savedNick;
   // Auto-join with saved nickname
@@ -189,63 +205,127 @@ document
     if (e.key === "Enter") joinChat();
   });
 
-function joinChat() {
-  var nickInput = document.getElementById("nickname-input").value.trim();
-  if (!nickInput) {
-    alert("Please enter a nickname");
-    return;
+// Connect to a specific chat instance
+// isSwitching: true when switching between instances (silent), false for initial join
+function connectToInstance(instance, isSwitching) {
+  // Disconnect from current socket if connected
+  if (socket) {
+    socket.disconnect();
   }
 
-  // Validate nickname contains only alphanumeric, underscore, and hyphen
-  if (!/^[a-zA-Z0-9_-]+$/.test(nickInput)) {
-    alert(
-      "Nickname can only contain letters, numbers, underscores, and hyphens",
-    );
-    return;
+  currentInstance = instance;
+
+  // Load the nickname for this instance (or prompt if none)
+  var instanceNick = localStorage.getItem("chatNickname_" + instance);
+  if (instanceNick) {
+    nick = instanceNick;
+  } else if (instance === "afterdark" && !instanceNick) {
+    // First time in After Dark - prompt for a nickname
+    var newNick = prompt("Enter your After Dark nickname:", nick);
+    if (newNick && newNick.trim()) {
+      nick = newNick.trim();
+      localStorage.setItem("chatNickname_" + instance, nick);
+    }
   }
 
-  nick = nickInput;
-  // Save nickname to localStorage
-  localStorage.setItem("chatNickname", nick);
-  document.getElementById("current-nick").textContent = nick;
+  // Apply theme and update toggle icon
+  var toggleBtn = document.getElementById("afterdark-toggle");
+  var faviconLink = document.querySelector("link[rel='icon']");
 
-  // Connect to socket
-  socket = io();
+  if (instance === "afterdark") {
+    document.documentElement.classList.add("after-dark");
+    document.getElementById("header").querySelector("h1").innerHTML =
+      'Home After Dark - <span id="current-nick">' + nick + "</span>";
+    // Change favicon to red moon (feather icon style)
+    if (faviconLink) {
+      faviconLink.href =
+        "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23e05050' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'></path></svg>";
+    }
+    // Change icon to home (to go back to home) and ensure visible
+    if (toggleBtn) {
+      toggleBtn.style.display = "flex";
+      toggleBtn.innerHTML = '<i data-feather="home"></i>';
+      toggleBtn.title = "Switch to Home Chat";
+      feather.replace();
+    }
+  } else {
+    document.documentElement.classList.remove("after-dark");
+    document.getElementById("header").querySelector("h1").innerHTML =
+      'Home Chat - <span id="current-nick">' + nick + "</span>";
+    // Change favicon to teal home (feather icon style)
+    if (faviconLink) {
+      faviconLink.href =
+        "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%234ec9b0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'></path><polyline points='9 22 9 12 15 12 15 22'></polyline></svg>";
+    }
+    // Change icon to moon (to go to after dark)
+    if (toggleBtn) {
+      toggleBtn.style.display = hasAfterDarkAccess ? "flex" : "none";
+      toggleBtn.innerHTML = '<i data-feather="moon"></i>';
+      toggleBtn.title = "Switch to After Dark";
+      feather.replace();
+    }
+  }
+  // Re-render feather icons
+  if (typeof feather !== "undefined") {
+    feather.replace();
+  }
+
+  // Connect to socket namespace
+  var namespace = instance === "afterdark" ? "/afterdark" : "/";
+  var authOptions = {};
+
+  if (instance === "afterdark") {
+    authOptions.deviceId = deviceId;
+    if (afterDarkAdminPassword) {
+      authOptions.adminPassword = afterDarkAdminPassword;
+    }
+  }
+
+  socket = io(namespace, { auth: authOptions });
+
+  // Track if this is a switch (for suppressing join message)
+  var silentJoin = isSwitching || false;
 
   // Register user with server
-  socket.emit("register", nick);
+  socket.emit("register", {
+    nickname: nick,
+    deviceId: deviceId,
+    silent: silentJoin,
+  });
 
   // Re-register on reconnect (handles idle tab disconnections)
   socket.on("connect", function () {
     if (nick) {
-      socket.emit("register", nick);
+      socket.emit("register", {
+        nickname: nick,
+        deviceId: deviceId,
+        silent: true,
+      });
     }
   });
 
-  // Handle registration response - only announce join if not a quiet reconnect
+  // Handle connection error (e.g., not authorized for After Dark)
+  socket.on("connect_error", function (err) {
+    if (instance === "afterdark") {
+      addMessage("Could not connect to After Dark: " + err.message, "help");
+      // Reset admin state if wrong password
+      hasAfterDarkAccess = false;
+      isAfterDarkAdmin = false;
+      afterDarkAdminPassword = null;
+      // Fall back to home
+      connectToInstance("home", false);
+    }
+  });
+
+  // Handle registration response - only announce join if not a quiet reconnect or switch
   socket.on("registered", function (data) {
-    if (!data.quiet) {
+    if (!data.quiet && !silentJoin) {
       socket.emit("send", {
         type: "notice",
         message: nick + " has joined the chat",
       });
     }
   });
-
-  // Show chat screen
-  document.getElementById("login-screen").style.display = "none";
-  document.getElementById("chat-screen").style.display = "flex";
-
-  // Restore chat history if available, otherwise show welcome
-  var historyRestored = restoreChatHistory();
-  if (!historyRestored) {
-    addMessage("Welcome to Home Chat!", "help");
-  }
-
-  // Focus on message input after a brief delay to ensure rendering
-  setTimeout(function () {
-    document.getElementById("message-input").focus();
-  }, 100);
 
   // Listen for messages
   socket.on("message", function (data) {
@@ -277,12 +357,86 @@ function joinChat() {
   // Handle being kicked
   socket.on("kicked", function (kickerNick) {
     addMessage("You were kicked by " + kickerNick + "!", "notice");
-    localStorage.removeItem("chatNickname");
+    localStorage.removeItem("chatNickname_" + currentInstance);
     socket.disconnect();
     setTimeout(function () {
       location.reload();
     }, 2000);
   });
+
+  // Handle After Dark access notification (when invited)
+  socket.on("afterDarkAccess", function (access, admin) {
+    hasAfterDarkAccess = access;
+    isAfterDarkAdmin = admin || false;
+    updateAfterDarkToggle();
+  });
+
+  // Check After Dark access on home connection
+  if (instance === "home") {
+    socket.emit("checkAfterDarkAccess", {
+      deviceId: deviceId,
+      adminPassword: afterDarkAdminPassword,
+    });
+  }
+
+  // Clear messages and restore history for this instance
+  var messagesDiv = document.getElementById("messages");
+  messagesDiv.innerHTML = "";
+  var historyRestored = restoreChatHistory();
+
+  // Show welcome message if no history
+  if (!historyRestored) {
+    if (instance === "afterdark") {
+      addMessage("Welcome to Home After Dark...", "help");
+    } else {
+      addMessage("Welcome to Home Chat!", "help");
+    }
+  }
+}
+
+// Update After Dark toggle visibility
+function updateAfterDarkToggle() {
+  var toggleBtn = document.getElementById("afterdark-toggle");
+  if (toggleBtn) {
+    toggleBtn.style.display = hasAfterDarkAccess ? "flex" : "none";
+    // Re-render feather icons
+    if (typeof feather !== "undefined") {
+      feather.replace();
+    }
+  }
+}
+
+function joinChat() {
+  var nickInput = document.getElementById("nickname-input").value.trim();
+  if (!nickInput) {
+    alert("Please enter a nickname");
+    return;
+  }
+
+  // Validate nickname contains only alphanumeric, underscore, and hyphen
+  if (!/^[a-zA-Z0-9_-]+$/.test(nickInput)) {
+    alert(
+      "Nickname can only contain letters, numbers, underscores, and hyphens",
+    );
+    return;
+  }
+
+  nick = nickInput;
+  // Save nickname to localStorage (per instance)
+  localStorage.setItem("chatNickname_" + currentInstance, nick);
+  document.getElementById("current-nick").textContent = nick;
+
+  // Show chat screen
+  document.getElementById("login-screen").style.display = "none";
+  document.getElementById("chat-screen").style.display = "flex";
+
+  // Connect to the chat instance (not switching, this is initial join)
+  connectToInstance(currentInstance, false);
+
+  // Focus on message input after a brief delay to ensure rendering
+  setTimeout(function () {
+    document.getElementById("message-input").focus();
+  }, 100);
 
   // Handle users button click
   document
@@ -311,6 +465,18 @@ function joinChat() {
       if (settingsVisible && userListVisible) {
         userListVisible = false;
         document.getElementById("users-modal").style.display = "none";
+      }
+    });
+
+  // Handle After Dark toggle button click
+  document
+    .getElementById("afterdark-toggle")
+    .addEventListener("click", function () {
+      saveChatHistory();
+      if (currentInstance === "home") {
+        connectToInstance("afterdark", true);
+      } else {
+        connectToInstance("home", true);
       }
     });
 
@@ -728,7 +894,7 @@ function chatCommand(cmd, arg) {
       }
 
       nick = arg;
-      localStorage.setItem("chatNickname", nick);
+      localStorage.setItem("chatNickname_" + currentInstance, nick);
       document.getElementById("current-nick").textContent = nick;
       socket.emit("changeNick", nick);
       socket.emit("send", { type: "notice", message: notice });
@@ -757,7 +923,7 @@ function chatCommand(cmd, arg) {
       socket.emit("send", { type: "notice", message: notice });
       socket.emit("exit"); // Tell server this is intentional
       addMessage("Goodbye!", "help");
-      localStorage.removeItem("chatNickname");
+      localStorage.removeItem("chatNickname_" + currentInstance);
       socket.disconnect();
       setTimeout(function () {
         location.reload();
@@ -772,6 +938,40 @@ function chatCommand(cmd, arg) {
       break;
     case "qotd":
       fetchQuoteOfTheDay();
+      break;
+    case "dark":
+      // If arg is provided, treat it as admin password
+      if (arg) {
+        afterDarkAdminPassword = arg;
+        hasAfterDarkAccess = true; // Assume access, server will reject if wrong
+        isAfterDarkAdmin = true;
+        saveChatHistory();
+        connectToInstance("afterdark", true);
+      } else if (!hasAfterDarkAccess) {
+        addMessage("That is not a valid command.", "help");
+      } else if (currentInstance === "afterdark") {
+        addMessage("You are already in After Dark.", "help");
+      } else {
+        saveChatHistory();
+        connectToInstance("afterdark", true);
+      }
+      break;
+    case "home":
+      if (currentInstance === "home") {
+        addMessage("You are already in Home Chat.", "help");
+      } else {
+        saveChatHistory();
+        connectToInstance("home", true);
+      }
+      break;
+    case "invite":
+      if (!isAfterDarkAdmin) {
+        addMessage("That is not a valid command.", "help");
+      } else if (!arg) {
+        addMessage("Usage: /invite <username>", "help");
+      } else {
+        socket.emit("invite", arg);
+      }
       break;
     default:
       addMessage("That is not a valid command.", "help");
@@ -788,6 +988,16 @@ function showHelp() {
   addMessage("  /who - Show online users", "help");
   addMessage("  /help - Show this help message", "help");
   addMessage("  /exit - Log out of chat", "help");
+  if (hasAfterDarkAccess) {
+    if (currentInstance === "home") {
+      addMessage("  /dark - Switch to After Dark", "help");
+    } else {
+      addMessage("  /home - Switch to Home Chat", "help");
+    }
+  }
+  if (isAfterDarkAdmin && currentInstance === "afterdark") {
+    addMessage("  /invite <user> - Invite user to After Dark", "help");
+  }
   addMessage("Text formatting:", "help");
   addMessage("  **bold**, *italic*, _underline_, ~strikethrough~", "help");
   addMessage("  Combine and nest styles in any order", "help");
@@ -1139,11 +1349,14 @@ function saveChatHistory() {
     chatHistory = chatHistory.slice(-5000);
   }
 
-  localStorage.setItem("chatHistory", JSON.stringify(chatHistory));
+  localStorage.setItem(
+    "chatHistory_" + currentInstance,
+    JSON.stringify(chatHistory),
+  );
 }
 
 function restoreChatHistory() {
-  var chatHistory = localStorage.getItem("chatHistory");
+  var chatHistory = localStorage.getItem("chatHistory_" + currentInstance);
 
   if (chatHistory) {
     var messagesDiv = document.getElementById("messages");

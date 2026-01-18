@@ -4,6 +4,16 @@
   box-sizing: border-box;
 }
 
+:root {
+  --accent-color: #4ec9b0;
+  --accent-dark: #3e5c56;
+}
+
+.after-dark {
+  --accent-color: #e05050;
+  --accent-dark: #5c3e3e;
+}
+
 body {
   font-family: "Courier New", monospace;
   background-color: #1e1e1e;
@@ -22,14 +32,14 @@ body {
 }
 
 #login-screen h1 {
-  color: #4ec9b0;
+  color: var(--accent-color);
   margin-bottom: 20px;
 }
 
 #login-screen input {
   padding: 10px;
   font-size: 16px;
-  border: 2px solid #4ec9b0;
+  border: 2px solid var(--accent-color);
   background-color: #2d2d2d;
   color: #d4d4d4;
   border-radius: 5px;
@@ -40,7 +50,7 @@ body {
 #login-screen button {
   padding: 10px 30px;
   font-size: 16px;
-  background-color: #4ec9b0;
+  background-color: var(--accent-color);
   color: #1e1e1e;
   border: none;
   border-radius: 5px;
@@ -61,7 +71,7 @@ body {
 #header {
   background-color: #2d2d2d;
   padding: 15px;
-  border-bottom: 2px solid #4ec9b0;
+  border-bottom: 2px solid var(--accent-color);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -69,7 +79,7 @@ body {
 }
 
 #header h1 {
-  color: #4ec9b0;
+  color: var(--accent-color);
   font-size: 20px;
   margin: 0;
   word-break: break-word;
@@ -112,7 +122,7 @@ body {
 .quote-block {
   margin: 10px 0;
   padding: 15px 20px;
-  border-left: 4px solid #4ec9b0;
+  border-left: 4px solid var(--accent-color);
   background-color: #252526;
   border-radius: 0 5px 5px 0;
 }
@@ -141,7 +151,7 @@ body {
   left: 15px;
   right: 15px;
   background-color: #2d2d2d;
-  border: 2px solid #4ec9b0;
+  border: 2px solid var(--accent-color);
   border-radius: 5px;
   max-height: 200px;
   overflow-y: auto;
@@ -161,7 +171,7 @@ body {
 
 .autocomplete-item:hover,
 .autocomplete-item.selected {
-  background-color: #3e5c56;
+  background-color: var(--accent-dark);
 }
 
 .autocomplete-item.selected span,
@@ -172,7 +182,7 @@ body {
 #input-area {
   background-color: #2d2d2d;
   padding: 15px;
-  border-top: 2px solid #4ec9b0;
+  border-top: 2px solid var(--accent-color);
   display: flex;
   gap: 10px;
 }
@@ -181,7 +191,7 @@ body {
   flex: 1;
   padding: 10px;
   font-size: 16px;
-  border: 2px solid #4ec9b0;
+  border: 2px solid var(--accent-color);
   background-color: #1e1e1e;
   color: #d4d4d4;
   border-radius: 5px;
@@ -191,7 +201,7 @@ body {
 #send-button {
   padding: 10px 30px;
   font-size: 16px;
-  background-color: #4ec9b0;
+  background-color: var(--accent-color);
   color: #1e1e1e;
   border: none;
   border-radius: 5px;
@@ -228,7 +238,7 @@ body {
 #users-button {
   padding: 8px 12px;
   font-size: 14px;
-  background-color: #4ec9b0;
+  background-color: var(--accent-color);
   color: #1e1e1e;
   border: none;
   border-radius: 5px;
@@ -249,7 +259,7 @@ body {
   top: 70px;
   right: 15px;
   background-color: #2d2d2d;
-  border: 2px solid #4ec9b0;
+  border: 2px solid var(--accent-color);
   border-radius: 8px;
   padding: 20px;
   min-width: 250px;
@@ -260,10 +270,10 @@ body {
 }
 
 #users-modal h3 {
-  color: #4ec9b0;
+  color: var(--accent-color);
   margin: 0 0 15px 0;
   font-size: 18px;
-  border-bottom: 1px solid #4ec9b0;
+  border-bottom: 1px solid var(--accent-color);
   padding-bottom: 10px;
 }
 
@@ -290,9 +300,28 @@ body {
   flex-shrink: 0;
 }
 
+#afterdark-toggle {
+  padding: 8px 10px;
+  background-color: var(--accent-color);
+  color: #1e1e1e;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  box-sizing: border-box;
+}
+
+#afterdark-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
 #audio-button {
   padding: 8px 10px;
-  background-color: #4ec9b0;
+  background-color: var(--accent-color);
   color: #1e1e1e;
   border: none;
   border-radius: 5px;
@@ -319,7 +348,7 @@ body {
   top: 70px;
   right: 15px;
   background-color: #2d2d2d;
-  border: 2px solid #4ec9b0;
+  border: 2px solid var(--accent-color);
   border-radius: 8px;
   padding: 20px;
   min-width: 280px;
@@ -330,10 +359,10 @@ body {
 }
 
 #settings-modal h3 {
-  color: #4ec9b0;
+  color: var(--accent-color);
   margin: 0 0 15px 0;
   font-size: 18px;
-  border-bottom: 1px solid #4ec9b0;
+  border-bottom: 1px solid var(--accent-color);
   padding-bottom: 10px;
 }
 
@@ -355,7 +384,7 @@ body {
   font-size: 14px;
   background-color: #1e1e1e;
   color: #d4d4d4;
-  border: 2px solid #4ec9b0;
+  border: 2px solid var(--accent-color);
   border-radius: 5px;
   cursor: pointer;
   font-family: "Courier New", monospace;
@@ -382,7 +411,7 @@ body {
 .settings-option input[type="radio"],
 .settings-option input[type="checkbox"] {
   margin-right: 10px;
-  accent-color: #4ec9b0;
+  accent-color: var(--accent-color);
 }
 
 /* Mobile responsive styles */
