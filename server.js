@@ -75,15 +75,37 @@ var io = socketio(server, {
   pingInterval: 25000, // Ping every 25 seconds
 });
 
-// Track connected users
+// Track connected users: { lowerNick: { nick, socketId, idle } }
 var users = {};
 
-// Track pending disconnections (for grace period on refresh)
+// Track pending disconnect timers
 var pendingDisconnects = {};
 var DISCONNECT_GRACE_PERIOD = 5000; // 5 seconds
 
+// Helper to build user list for clients
+function getUserList() {
+  var list = [];
+  for (var lowerNick in users) {
+    list.push({
+      nick: users[lowerNick].nick,
+      idle: users[lowerNick].idle || false,
+    });
+  }
+  return list;
+}
+
+// Helper to find user by socket ID
+function findUserBySocketId(socketId) {
+  for (var lowerNick in users) {
+    if (users[lowerNick].socketId === socketId) {
+      return { lowerNick: lowerNick, user: users[lowerNick] };
+    }
+  }
+  return null;
+}
+
 // App version - increment this when you want clients to reload
-var appVersion = "1.0.0";
+var appVersion = "1.0.1";
 
 // Listen on port 3010 on all network interfaces
 server.listen(3010, "0.0.0.0", function () {
@@ -101,20 +123,30 @@ io.on("connection", function (socket) {
   socket.on("register", function (nickname) {
     var lowerNick = nickname.toLowerCase();
 
-    // Check if this user is reconnecting within the grace period
-    if (pendingDisconnects[lowerNick]) {
-      // Cancel the pending disconnect notification
+    // Check if this user is reconnecting (was idle or has pending disconnect)
+    if (users[lowerNick] && users[lowerNick].idle) {
+      // Cancel the pending disconnect timer
+      if (pendingDisconnects[lowerNick]) {
+        clearTimeout(pendingDisconnects[lowerNick]);
+        delete pendingDisconnects[lowerNick];
+      }
+      // Update socket ID and mark as active
+      users[lowerNick].socketId = socket.id;
+      users[lowerNick].idle = false;
+      io.emit("userList", getUserList());
+      // Tell client this was a quiet reconnect
+      socket.emit("registered", { quiet: true });
+    } else if (pendingDisconnects[lowerNick]) {
+      // Reconnecting during grace period (before marked idle)
       clearTimeout(pendingDisconnects[lowerNick]);
       delete pendingDisconnects[lowerNick];
-      // Just register without announcing join
-      users[socket.id] = nickname;
-      io.emit("userList", Object.values(users));
-      // Tell client this was a quiet reconnect
+      users[lowerNick] = { nick: nickname, socketId: socket.id, idle: false };
+      io.emit("userList", getUserList());
       socket.emit("registered", { quiet: true });
     } else {
       // New connection - register normally
-      users[socket.id] = nickname;
-      io.emit("userList", Object.values(users));
+      users[lowerNick] = { nick: nickname, socketId: socket.id, idle: false };
+      io.emit("userList", getUserList());
       // Tell client to announce join
       socket.emit("registered", { quiet: false });
     }
@@ -122,8 +154,15 @@ io.on("connection", function (socket) {
 
   // Handle nickname changes
   socket.on("changeNick", function (newNick) {
-    users[socket.id] = newNick;
-    io.emit("userList", Object.values(users));
+    var found = findUserBySocketId(socket.id);
+    if (found) {
+      // Remove old entry and create new one
+      var oldLowerNick = found.lowerNick;
+      delete users[oldLowerNick];
+      var newLowerNick = newNick.toLowerCase();
+      users[newLowerNick] = { nick: newNick, socketId: socket.id, idle: false };
+      io.emit("userList", getUserList());
+    }
   });
 
   // Broadcast a user's message to everyone else in the room
@@ -133,28 +172,22 @@ io.on("connection", function (socket) {
 
   // Handle kick command
   socket.on("kick", function (targetNick) {
-    var kickerNick = users[socket.id];
-    // Find the socket ID of the target user
-    var targetSocketId = null;
-    for (var id in users) {
-      if (users[id].toLowerCase() === targetNick.toLowerCase()) {
-        targetSocketId = id;
-        break;
-      }
-    }
+    var found = findUserBySocketId(socket.id);
+    var kickerNick = found ? found.user.nick : "Unknown";
+    var lowerTargetNick = targetNick.toLowerCase();
 
-    if (targetSocketId) {
-      var actualNick = users[targetSocketId];
-      var lowerNick = actualNick.toLowerCase();
+    if (users[lowerTargetNick]) {
+      var targetUser = users[lowerTargetNick];
+      var actualNick = targetUser.nick;
       // Mark as kicked to skip grace period on disconnect
-      pendingDisconnects[lowerNick] = "kicked";
+      pendingDisconnects[lowerTargetNick] = "kicked";
       // Notify everyone about the kick
       io.emit("message", {
         type: "notice",
         message: actualNick + " was kicked by " + kickerNick,
       });
       // Tell the kicked user they were kicked (they will disconnect themselves)
-      io.to(targetSocketId).emit("kicked", kickerNick);
+      io.to(targetUser.socketId).emit("kicked", kickerNick);
     } else {
       // User not found, notify only the kicker
       socket.emit("message", {
@@ -166,32 +199,40 @@ io.on("connection", function (socket) {
 
   // Handle intentional exit (skip grace period)
   socket.on("exit", function () {
-    if (users[socket.id]) {
-      var lowerNick = users[socket.id].toLowerCase();
+    var found = findUserBySocketId(socket.id);
+    if (found) {
       // Mark this user as intentionally exiting
-      pendingDisconnects[lowerNick] = "intentional";
+      pendingDisconnects[found.lowerNick] = "intentional";
     }
   });
 
   // Handle disconnection
   socket.on("disconnect", function () {
-    if (users[socket.id]) {
-      var nick = users[socket.id];
-      var lowerNick = nick.toLowerCase();
-      delete users[socket.id];
-      io.emit("userList", Object.values(users));
+    var found = findUserBySocketId(socket.id);
+    if (found) {
+      var nick = found.user.nick;
+      var lowerNick = found.lowerNick;
 
       // Check if this was an intentional exit or kick
       if (
         pendingDisconnects[lowerNick] === "intentional" ||
         pendingDisconnects[lowerNick] === "kicked"
       ) {
-        // Clean up - no grace period, no disconnect message (already sent notice)
+        // Clean up - remove user immediately, no disconnect message
+        delete users[lowerNick];
         delete pendingDisconnects[lowerNick];
+        io.emit("userList", getUserList());
       } else {
-        // Use grace period before announcing disconnect
+        // Mark user as idle and start grace period
+        users[lowerNick].idle = true;
+        users[lowerNick].socketId = null;
+        io.emit("userList", getUserList());
+
+        // After grace period, remove user and announce disconnect
         pendingDisconnects[lowerNick] = setTimeout(function () {
           delete pendingDisconnects[lowerNick];
+          delete users[lowerNick];
+          io.emit("userList", getUserList());
           io.emit("message", {
             type: "notice",
             message: nick + " has disconnected",

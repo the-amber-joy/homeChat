@@ -1095,7 +1095,10 @@ function addUserListItem(text, isCurrentUser) {
 }
 
 function updateUserList(users) {
-  currentUserList = users;
+  // Users is now an array of { nick, idle } objects
+  currentUserList = users.map(function (u) {
+    return u.nick;
+  });
   var usersList = document.getElementById("users-list");
   var userCount = document.getElementById("user-count");
 
@@ -1105,11 +1108,14 @@ function updateUserList(users) {
   users.forEach(function (user) {
     var userDiv = document.createElement("div");
     userDiv.className = "user-item";
-    userDiv.style.color = getUserColor(user);
-    if (user === nick) {
-      userDiv.textContent = "* " + user;
+    if (user.idle) {
+      userDiv.classList.add("user-idle");
+    }
+    userDiv.style.color = getUserColor(user.nick);
+    if (user.nick === nick) {
+      userDiv.textContent = "* " + user.nick;
     } else {
-      userDiv.textContent = user;
+      userDiv.textContent = user.nick;
     }
     usersList.appendChild(userDiv);
   });
