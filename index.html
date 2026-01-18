@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Home Chat</title>
   <link rel="stylesheet" href="./style.css" />
+  <script src="https://unpkg.com/feather-icons"></script>
 </head>
 
 <body>
@@ -19,7 +20,34 @@
   <div id="chat-screen">
     <div id="header">
       <h1>Home Chat - <span id="current-nick"></span></h1>
-      <button id="users-button">Online (<span id="user-count">0</span>)</button>
+      <div id="header-buttons">
+        <button id="audio-button"><i data-feather="bell"></i></button>
+        <button id="users-button">Online (<span id="user-count">0</span>)</button>
+      </div>
+    </div>
+    <div id="settings-modal">
+      <h3>Settings</h3>
+      <div id="settings-content">
+        <div class="settings-section">
+          <h4>Notification Sounds</h4>
+          <label class="settings-option">
+            <input type="radio" name="notification" value="none" checked />
+            <span>No sounds</span>
+          </label>
+          <label class="settings-option">
+            <input type="radio" name="notification" value="private" />
+            <span>Private messages only</span>
+          </label>
+          <label class="settings-option">
+            <input type="radio" name="notification" value="tagged" />
+            <span>When I'm tagged (@mentioned)</span>
+          </label>
+          <label class="settings-option">
+            <input type="radio" name="notification" value="all" />
+            <span>All messages</span>
+          </label>
+        </div>
+      </div>
     </div>
     <div id="users-modal">
       <h3>Online Users</h3>
@@ -36,6 +64,7 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="./script.js"></script>
+  <script>feather.replace();</script>
 </body>
 
 </html>

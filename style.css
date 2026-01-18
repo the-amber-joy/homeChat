@@ -62,13 +62,16 @@ body {
   background-color: #2d2d2d;
   padding: 15px;
   border-bottom: 2px solid #4ec9b0;
-  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
 }
 
 #header h1 {
   color: #4ec9b0;
   font-size: 20px;
-  padding-right: 100px;
+  margin: 0;
   word-break: break-word;
 }
 
@@ -197,10 +200,7 @@ body {
 }
 
 #users-button {
-  position: absolute;
-  top: 15px;
-  right: 15px;
-  padding: 8px 20px;
+  padding: 8px 12px;
   font-size: 14px;
   background-color: #4ec9b0;
   color: #1e1e1e;
@@ -209,6 +209,8 @@ body {
   cursor: pointer;
   font-weight: bold;
   font-family: "Courier New", monospace;
+  height: 36px;
+  box-sizing: border-box;
 }
 
 #users-button:hover {
@@ -249,24 +251,100 @@ body {
   border-bottom: none;
 }
 
-#header {
-  position: relative;
+#header-buttons {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+#audio-button {
+  padding: 8px 10px;
+  background-color: #4ec9b0;
+  color: #1e1e1e;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  box-sizing: border-box;
+}
+
+#audio-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+#audio-button:hover {
+  background-color: #6fdfbf;
+}
+
+#settings-modal {
+  display: none;
+  position: fixed;
+  top: 70px;
+  right: 15px;
+  background-color: #2d2d2d;
+  border: 2px solid #4ec9b0;
+  border-radius: 8px;
+  padding: 20px;
+  min-width: 280px;
+  max-height: 400px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+#settings-modal h3 {
+  color: #4ec9b0;
+  margin: 0 0 15px 0;
+  font-size: 18px;
+  border-bottom: 1px solid #4ec9b0;
+  padding-bottom: 10px;
+}
+
+.settings-section h4 {
+  color: #d4d4d4;
+  margin: 0 0 10px 0;
+  font-size: 14px;
+}
+
+.settings-option {
+  display: flex;
+  align-items: center;
+  padding: 8px 5px;
+  cursor: pointer;
+  color: #d4d4d4;
+}
+
+.settings-option:hover {
+  background-color: #3e3e3e;
+  border-radius: 4px;
+}
+
+.settings-option input[type="radio"] {
+  margin-right: 10px;
+  accent-color: #4ec9b0;
 }
 
 /* Mobile responsive styles */
 @media (max-width: 768px) {
   #header h1 {
     font-size: 16px;
-    padding-right: 90px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  #users-button {
-    padding: 6px 12px;
-    font-size: 12px;
-    top: 12px;
-    right: 10px;
+  #header-buttons {
+    gap: 5px;
+    flex-shrink: 0;
   }
 
+  #settings-modal,
   #users-modal {
     right: 10px;
     top: 55px;

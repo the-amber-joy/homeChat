@@ -1,9 +1,58 @@
 var socket;
 var nick;
 var userListVisible = false;
+var settingsVisible = false;
 var currentUserList = [];
 var clientVersion = localStorage.getItem("appVersion") || null;
 var userColorCache = {}; // Cache colors by username to persist across nick changes
+
+// Notification settings
+var notificationSetting = localStorage.getItem("notificationSetting") || "none";
+
+// Placeholder for notification sound
+function playNotificationSound() {
+  // TODO: Replace with actual notification sound
+  console.log("🔔 Notification sound would play here");
+  // Example implementation when sound file is added:
+  // var audio = new Audio('./notification.mp3');
+  // audio.play().catch(function(e) { console.log('Audio play failed:', e); });
+}
+
+// Update bell icon based on notification setting
+function updateBellIcon(setting) {
+  var button = document.getElementById("audio-button");
+  if (button) {
+    var iconName = setting === "none" ? "bell-off" : "bell";
+    button.innerHTML = '<i data-feather="' + iconName + '"></i>';
+    if (typeof feather !== "undefined") {
+      feather.replace();
+    }
+  }
+}
+
+// Check if notification should play based on settings and message type
+function shouldPlayNotification(messageType, messageText) {
+  if (notificationSetting === "none") {
+    return false;
+  }
+  if (notificationSetting === "private") {
+    return messageType === "tell";
+  }
+  if (notificationSetting === "tagged") {
+    // Check if current user is mentioned in the message
+    if (messageType === "tell") return true;
+    var mentionRegex = new RegExp("@" + nick + "\\b", "i");
+    return mentionRegex.test(messageText);
+  }
+  if (notificationSetting === "all") {
+    return (
+      messageType === "chat" ||
+      messageType === "tell" ||
+      messageType === "emote"
+    );
+  }
+  return false;
+}
 
 // Check if user has a saved nickname
 var savedNick = localStorage.getItem("chatNickname");
@@ -104,12 +153,57 @@ function joinChat() {
       document.getElementById("users-modal").style.display = userListVisible
         ? "block"
         : "none";
+      // Close settings if open
+      if (userListVisible && settingsVisible) {
+        settingsVisible = false;
+        document.getElementById("settings-modal").style.display = "none";
+      }
     });
 
-  // Close user list when clicking outside
+  // Handle audio button click
+  document
+    .getElementById("audio-button")
+    .addEventListener("click", function () {
+      settingsVisible = !settingsVisible;
+      document.getElementById("settings-modal").style.display = settingsVisible
+        ? "block"
+        : "none";
+      // Close user list if open
+      if (settingsVisible && userListVisible) {
+        userListVisible = false;
+        document.getElementById("users-modal").style.display = "none";
+      }
+    });
+
+  // Initialize notification setting radio buttons
+  var savedSetting = localStorage.getItem("notificationSetting") || "all";
+  var radioButton = document.querySelector(
+    'input[name="notification"][value="' + savedSetting + '"]',
+  );
+  if (radioButton) {
+    radioButton.checked = true;
+  }
+  // Update bell icon based on saved setting
+  updateBellIcon(savedSetting);
+
+  // Handle notification setting changes
+  document
+    .querySelectorAll('input[name="notification"]')
+    .forEach(function (radio) {
+      radio.addEventListener("change", function () {
+        notificationSetting = this.value;
+        localStorage.setItem("notificationSetting", notificationSetting);
+        updateBellIcon(notificationSetting);
+      });
+    });
+
+  // Close user list or settings when clicking outside
   document.addEventListener("click", function (e) {
     var usersButton = document.getElementById("users-button");
     var usersModal = document.getElementById("users-modal");
+    var audioButton = document.getElementById("audio-button");
+    var settingsModal = document.getElementById("settings-modal");
+
     if (
       userListVisible &&
       e.target !== usersButton &&
@@ -118,6 +212,16 @@ function joinChat() {
     ) {
       userListVisible = false;
       usersModal.style.display = "none";
+    }
+
+    if (
+      settingsVisible &&
+      e.target !== audioButton &&
+      !audioButton.contains(e.target) &&
+      !settingsModal.contains(e.target)
+    ) {
+      settingsVisible = false;
+      settingsModal.style.display = "none";
     }
   });
 
@@ -512,6 +616,10 @@ function getUserColor(username) {
 function handleMessage(data) {
   if (data.type === "chat" && data.nick !== nick) {
     addMessage("<" + data.nick + "> " + data.message, "chat", data.nick);
+    // Check if we should play notification
+    if (shouldPlayNotification("chat", data.message)) {
+      playNotificationSound();
+    }
   } else if (data.type === "notice") {
     addMessage(data.message, "notice");
   } else if (
@@ -522,8 +630,16 @@ function handleMessage(data) {
       "[" + data.from + " -> " + data.to + "] " + data.message,
       "tell",
     );
+    // Always check for private message notification
+    if (shouldPlayNotification("tell", data.message)) {
+      playNotificationSound();
+    }
   } else if (data.type === "emote") {
     addMessage(data.message, "emote");
+    // Check if we should play notification for emote
+    if (shouldPlayNotification("emote", data.message)) {
+      playNotificationSound();
+    }
   }
 }
 
