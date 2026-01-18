@@ -152,6 +152,13 @@ function joinChat() {
   // Register user with server
   socket.emit("register", nick);
 
+  // Re-register on reconnect (handles idle tab disconnections)
+  socket.on("connect", function () {
+    if (nick) {
+      socket.emit("register", nick);
+    }
+  });
+
   // Send join message
   socket.emit("send", {
     type: "notice",

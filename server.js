@@ -40,7 +40,10 @@ var server = http.createServer(function (req, res) {
     res.end("Not found");
   }
 });
-var io = socketio(server);
+var io = socketio(server, {
+  pingTimeout: 60000, // Wait 60 seconds for pong response
+  pingInterval: 25000, // Ping every 25 seconds
+});
 
 // Track connected users
 var users = {};
