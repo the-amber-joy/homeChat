@@ -35,6 +35,42 @@ var notificationThemes = {
   // }
 };
 
+// Preloaded audio cache for instant playback
+var preloadedSounds = {};
+
+// Preload all sounds for a theme
+function preloadThemeSounds(themeName) {
+  var theme = notificationThemes[themeName];
+  if (!theme) return;
+
+  preloadedSounds[themeName] = {};
+  ["private", "mention", "chat"].forEach(function (soundType) {
+    if (theme[soundType]) {
+      var audio = new Audio(theme[soundType]);
+      audio.preload = "auto"; 
+      // Force the browser to fully load the audio
+      audio.load();
+      // Also try to decode by playing silently
+      audio.volume = 0;
+      audio
+        .play()
+        .then(function () {
+          audio.pause();
+          audio.currentTime = 0;
+          audio.volume = 1;
+        })
+        .catch(function () {
+          // Autoplay blocked, will load on first user interaction
+          audio.volume = 1;
+        });
+      preloadedSounds[themeName][soundType] = audio;
+    }
+  });
+}
+
+// Preload current theme on page load
+preloadThemeSounds(notificationTheme);
+
 // Play notification sound based on message type
 function playNotificationSound(soundType) {
   var theme = notificationThemes[notificationTheme];
@@ -43,6 +79,20 @@ function playNotificationSound(soundType) {
     return;
   }
 
+  // Use preloaded audio if available - clone it for instant playback
+  var cachedTheme = preloadedSounds[notificationTheme];
+  if (cachedTheme && cachedTheme[soundType]) {
+    var original = cachedTheme[soundType];
+    // Clone the audio node for overlapping sounds and instant playback
+    var audio = original.cloneNode();
+    audio.volume = 1;
+    audio.play().catch(function (e) {
+      console.log("Audio play failed:", e);
+    });
+    return;
+  }
+
+  // Fallback: create new Audio (will have delay)
   var soundFile = theme[soundType];
   if (!soundFile) {
     console.log("Unknown sound type:", soundType);
@@ -284,6 +334,8 @@ function joinChat() {
     themeSelect.addEventListener("change", function () {
       notificationTheme = this.value;
       localStorage.setItem("notificationTheme", notificationTheme);
+      // Preload sounds for the new theme
+      preloadThemeSounds(notificationTheme);
     });
   }
 
