@@ -271,6 +271,16 @@ function joinChat() {
     }
   });
 
+  // Handle being kicked
+  socket.on("kicked", function (kickerNick) {
+    addMessage("You were kicked by " + kickerNick + "!", "notice");
+    localStorage.removeItem("chatNickname");
+    socket.disconnect();
+    setTimeout(function () {
+      location.reload();
+    }, 2000);
+  });
+
   // Handle users button click
   document
     .getElementById("users-button")
@@ -406,12 +416,13 @@ function joinChat() {
   var autocompleteItems = [];
   var autocompleteSelected = -1;
   var autocompleteStartPos = -1;
-  var autocompleteType = null; // "user" or "command"
+  var autocompleteType = null; // "user", "user-arg", or "command"
 
   // Available commands with descriptions
   var commands = [
     { name: "nick", args: "<name>", description: "Change your nickname" },
     { name: "me", args: "<action>", description: "Send an emote" },
+    { name: "kick", args: "<user>", description: "Kick a user from chat" },
     { name: "who", args: "", description: "Show online users" },
     { name: "help", args: "", description: "Show help message" },
     { name: "exit", args: "", description: "Log out of chat" },
@@ -492,12 +503,12 @@ function joinChat() {
     }
   });
 
-  function showUserAutocomplete(users, atPos) {
+  function showUserAutocomplete(users, atPos, isArg) {
     autocompleteVisible = true;
     autocompleteItems = users;
     autocompleteSelected = 0;
     autocompleteStartPos = atPos;
-    autocompleteType = "user";
+    autocompleteType = isArg ? "user-arg" : "user";
 
     var dropdown = document.getElementById("autocomplete-dropdown");
     dropdown.innerHTML = "";
@@ -598,6 +609,17 @@ function joinChat() {
         autocompleteStartPos + selectedUser.length + 2;
       hideAutocomplete();
       messageInput.focus();
+    } else if (autocompleteType === "user-arg") {
+      // User selection for command arguments (no @ prefix)
+      var selectedUser = autocompleteItems[autocompleteSelected];
+      var newValue =
+        value.substring(0, autocompleteStartPos) +
+        selectedUser +
+        value.substring(cursorPos);
+      messageInput.value = newValue;
+      hideAutocomplete();
+      // Execute the command immediately
+      sendMessage();
     } else if (autocompleteType === "command") {
       var selectedCmd = autocompleteItems[autocompleteSelected];
       hideAutocomplete();
@@ -606,6 +628,23 @@ function joinChat() {
       if (!selectedCmd.args) {
         messageInput.value = "/" + selectedCmd.name;
         sendMessage();
+      } else if (selectedCmd.name === "kick") {
+        // Kick command shows user selection
+        messageInput.value = "/" + selectedCmd.name + " ";
+        messageInput.selectionStart = messageInput.selectionEnd =
+          selectedCmd.name.length + 2;
+        messageInput.focus();
+        // Show user autocomplete (excluding self) - use user-arg type (no @ prefix)
+        var kickableUsers = currentUserList.filter(function (user) {
+          return user.toLowerCase() !== nick.toLowerCase();
+        });
+        if (kickableUsers.length > 0) {
+          showUserAutocomplete(
+            kickableUsers,
+            selectedCmd.name.length + 2,
+            true,
+          );
+        }
       } else {
         // Replace from / to cursor with selected command
         var newValue =
@@ -719,6 +758,13 @@ function chatCommand(cmd, arg) {
         location.reload();
       }, 1000);
       break;
+    case "kick":
+      if (!arg) {
+        addMessage("Usage: /kick <username>", "help");
+      } else {
+        socket.emit("kick", arg);
+      }
+      break;
     default:
       addMessage("That is not a valid command.", "help");
   }
@@ -729,6 +775,7 @@ function showHelp() {
   addMessage("  @username <message> - Send a private message", "help");
   addMessage("  /nick <name> - Change your nickname", "help");
   addMessage("  /me <action> - Send an emote", "help");
+  addMessage("  /kick <user> - Kick a user from chat", "help");
   addMessage("  /who - Show online users", "help");
   addMessage("  /help - Show this help message", "help");
   addMessage("  /exit - Log out of chat", "help");

@@ -92,6 +92,36 @@ io.on("connection", function (socket) {
     io.emit("message", data);
   });
 
+  // Handle kick command
+  socket.on("kick", function (targetNick) {
+    var kickerNick = users[socket.id];
+    // Find the socket ID of the target user
+    var targetSocketId = null;
+    for (var id in users) {
+      if (users[id].toLowerCase() === targetNick.toLowerCase()) {
+        targetSocketId = id;
+        break;
+      }
+    }
+
+    if (targetSocketId) {
+      var actualNick = users[targetSocketId];
+      // Notify everyone about the kick
+      io.emit("message", {
+        type: "notice",
+        message: actualNick + " was kicked by " + kickerNick,
+      });
+      // Tell the kicked user they were kicked (they will disconnect themselves)
+      io.to(targetSocketId).emit("kicked", kickerNick);
+    } else {
+      // User not found, notify only the kicker
+      socket.emit("message", {
+        type: "help",
+        message: "User '" + targetNick + "' not found.",
+      });
+    }
+  });
+
   // Handle disconnection
   socket.on("disconnect", function () {
     if (users[socket.id]) {
