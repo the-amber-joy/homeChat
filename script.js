@@ -393,7 +393,7 @@ function joinChat() {
   messageInput.addEventListener("keypress", function (e) {
     if (e.key === "Enter") {
       if (autocompleteVisible && autocompleteSelected >= 0) {
-        selectAutocompleteUser();
+        selectAutocompleteItem();
         e.preventDefault();
       } else {
         sendMessage();
@@ -403,15 +403,42 @@ function joinChat() {
 
   // Autocomplete functionality
   var autocompleteVisible = false;
-  var autocompleteUsers = [];
+  var autocompleteItems = [];
   var autocompleteSelected = -1;
   var autocompleteStartPos = -1;
+  var autocompleteType = null; // "user" or "command"
+
+  // Available commands with descriptions
+  var commands = [
+    { name: "nick", args: "<name>", description: "Change your nickname" },
+    { name: "me", args: "<action>", description: "Send an emote" },
+    { name: "who", args: "", description: "Show online users" },
+    { name: "help", args: "", description: "Show help message" },
+    { name: "exit", args: "", description: "Log out of chat" },
+  ];
 
   messageInput.addEventListener("input", function (e) {
     var value = messageInput.value;
     var cursorPos = messageInput.selectionStart;
 
-    // Find @ symbol before cursor
+    // Check for / commands at the start of input
+    if (value[0] === "/" && cursorPos > 0) {
+      var searchText = value.substring(1, cursorPos).toLowerCase();
+
+      // Only show command autocomplete if no space yet (still typing command)
+      if (searchText.indexOf(" ") === -1) {
+        var filtered = commands.filter(function (cmd) {
+          return cmd.name.toLowerCase().startsWith(searchText);
+        });
+
+        if (filtered.length > 0) {
+          showCommandAutocomplete(filtered, 0);
+          return;
+        }
+      }
+    }
+
+    // Find @ symbol before cursor for user mentions
     var atPos = value.lastIndexOf("@", cursorPos - 1);
 
     if (atPos >= 0 && (atPos === 0 || value[atPos - 1] === " ")) {
@@ -424,13 +451,12 @@ function joinChat() {
       });
 
       if (filtered.length > 0) {
-        showAutocomplete(filtered, atPos);
-      } else {
-        hideAutocomplete();
+        showUserAutocomplete(filtered, atPos);
+        return;
       }
-    } else {
-      hideAutocomplete();
     }
+
+    hideAutocomplete();
   });
 
   messageInput.addEventListener("keydown", function (e) {
@@ -440,7 +466,7 @@ function joinChat() {
       e.preventDefault();
       autocompleteSelected = Math.min(
         autocompleteSelected + 1,
-        autocompleteUsers.length - 1,
+        autocompleteItems.length - 1,
       );
       updateAutocompleteSelection();
     } else if (e.key === "ArrowUp") {
@@ -449,10 +475,10 @@ function joinChat() {
       updateAutocompleteSelection();
     } else if (e.key === "Escape") {
       hideAutocomplete();
-    } else if (e.key === "Tab" && autocompleteUsers.length > 0) {
+    } else if (e.key === "Tab" && autocompleteItems.length > 0) {
       e.preventDefault();
       if (autocompleteSelected < 0) autocompleteSelected = 0;
-      selectAutocompleteUser();
+      selectAutocompleteItem();
     }
   });
 
@@ -466,11 +492,12 @@ function joinChat() {
     }
   });
 
-  function showAutocomplete(users, atPos) {
+  function showUserAutocomplete(users, atPos) {
     autocompleteVisible = true;
-    autocompleteUsers = users;
+    autocompleteItems = users;
     autocompleteSelected = 0;
     autocompleteStartPos = atPos;
+    autocompleteType = "user";
 
     var dropdown = document.getElementById("autocomplete-dropdown");
     dropdown.innerHTML = "";
@@ -487,7 +514,48 @@ function joinChat() {
         updateAutocompleteSelection();
       });
       item.addEventListener("click", function () {
-        selectAutocompleteUser();
+        selectAutocompleteItem();
+      });
+      dropdown.appendChild(item);
+    });
+  }
+
+  function showCommandAutocomplete(cmds, slashPos) {
+    autocompleteVisible = true;
+    autocompleteItems = cmds;
+    autocompleteSelected = 0;
+    autocompleteStartPos = slashPos;
+    autocompleteType = "command";
+
+    var dropdown = document.getElementById("autocomplete-dropdown");
+    dropdown.innerHTML = "";
+    dropdown.style.display = "block";
+
+    cmds.forEach(function (cmd, index) {
+      var item = document.createElement("div");
+      item.className = "autocomplete-item";
+      if (index === 0) item.classList.add("selected");
+
+      var cmdSpan = document.createElement("span");
+      cmdSpan.style.color = "#4ec9b0";
+      cmdSpan.textContent = "/" + cmd.name;
+      if (cmd.args) {
+        cmdSpan.textContent += " " + cmd.args;
+      }
+      item.appendChild(cmdSpan);
+
+      var descSpan = document.createElement("span");
+      descSpan.style.color = "#808080";
+      descSpan.style.marginLeft = "10px";
+      descSpan.textContent = "— " + cmd.description;
+      item.appendChild(descSpan);
+
+      item.addEventListener("mouseenter", function () {
+        autocompleteSelected = index;
+        updateAutocompleteSelection();
+      });
+      item.addEventListener("click", function () {
+        selectAutocompleteItem();
       });
       dropdown.appendChild(item);
     });
@@ -505,15 +573,19 @@ function joinChat() {
     });
   }
 
-  function selectAutocompleteUser() {
+  function selectAutocompleteItem() {
     if (
-      autocompleteSelected >= 0 &&
-      autocompleteSelected < autocompleteUsers.length
+      autocompleteSelected < 0 ||
+      autocompleteSelected >= autocompleteItems.length
     ) {
-      var selectedUser = autocompleteUsers[autocompleteSelected];
-      var value = messageInput.value;
-      var cursorPos = messageInput.selectionStart;
+      return;
+    }
 
+    var value = messageInput.value;
+    var cursorPos = messageInput.selectionStart;
+
+    if (autocompleteType === "user") {
+      var selectedUser = autocompleteItems[autocompleteSelected];
       // Replace from @ to cursor with selected username
       var newValue =
         value.substring(0, autocompleteStartPos) +
@@ -524,17 +596,34 @@ function joinChat() {
       messageInput.value = newValue;
       messageInput.selectionStart = messageInput.selectionEnd =
         autocompleteStartPos + selectedUser.length + 2;
-
       hideAutocomplete();
       messageInput.focus();
+    } else if (autocompleteType === "command") {
+      var selectedCmd = autocompleteItems[autocompleteSelected];
+      hideAutocomplete();
+
+      // Commands without arguments execute immediately
+      if (!selectedCmd.args) {
+        messageInput.value = "/" + selectedCmd.name;
+        sendMessage();
+      } else {
+        // Replace from / to cursor with selected command
+        var newValue =
+          "/" + selectedCmd.name + " " + value.substring(cursorPos);
+        messageInput.value = newValue;
+        messageInput.selectionStart = messageInput.selectionEnd =
+          selectedCmd.name.length + 2;
+        messageInput.focus();
+      }
     }
   }
 
   function hideAutocomplete() {
     autocompleteVisible = false;
-    autocompleteUsers = [];
+    autocompleteItems = [];
     autocompleteSelected = -1;
     autocompleteStartPos = -1;
+    autocompleteType = null;
     document.getElementById("autocomplete-dropdown").style.display = "none";
   }
 }
