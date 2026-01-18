@@ -6,6 +6,13 @@ var currentUserList = [];
 var socket = socketio("http://localhost:3010");
 var rl = readline.createInterface(process.stdin, process.stdout);
 
+// User selection state (triggered by @)
+var userSelectMode = false;
+var userSelectUsers = [];
+var userSelectSelected = 0;
+var savedLine = "";
+var savedCursor = 0;
+
 // Set the username
 rl.question("Please enter a nickname: ", function (name) {
   nick = name;
@@ -33,6 +40,139 @@ rl.question("Please enter a nickname: ", function (name) {
   }, 200);
   rl.prompt(true);
 });
+
+// Enable keypress events
+if (process.stdin.setRawMode) {
+  readline.emitKeypressEvents(process.stdin);
+  process.stdin.setRawMode(true);
+}
+
+// Handle keypress for user selection mode
+process.stdin.on("keypress", function (str, key) {
+  if (!key) return;
+
+  // Handle user selection navigation
+  if (userSelectMode) {
+    if (key.name === "down") {
+      userSelectSelected = Math.min(
+        userSelectSelected + 1,
+        userSelectUsers.length - 1,
+      );
+      displayUserSelection();
+      return;
+    } else if (key.name === "up") {
+      userSelectSelected = Math.max(userSelectSelected - 1, 0);
+      displayUserSelection();
+      return;
+    } else if (
+      key.name === "return" ||
+      key.name === "tab" ||
+      key.name === "space"
+    ) {
+      completeUserSelection();
+      return;
+    } else if (key.name === "escape") {
+      cancelUserSelection();
+      return;
+    }
+    // Block other keys in user select mode
+    return;
+  }
+
+  // Detect @ and trigger user selection
+  setTimeout(function () {
+    var line = rl.line || "";
+    var cursor = rl.cursor || 0;
+
+    // Check if last typed character was @
+    if (cursor > 0 && line[cursor - 1] === "@") {
+      var atPos = cursor - 1;
+      if (atPos === 0 || line[atPos - 1] === " ") {
+        // Filter users (exclude self)
+        var filtered = currentUserList.filter(function (user) {
+          return user !== nick;
+        });
+
+        if (filtered.length > 0) {
+          startUserSelection(filtered, atPos);
+        }
+      }
+    }
+  }, 0);
+});
+
+function startUserSelection(users, atPos) {
+  userSelectMode = true;
+  userSelectUsers = users;
+  userSelectSelected = 0;
+
+  // Save current line state (without the @)
+  savedLine = rl.line.substring(0, atPos);
+  savedCursor = atPos;
+
+  // Clear current line and save this position
+  process.stdout.clearLine();
+  process.stdout.cursorTo(0);
+  process.stdout.write("\x1b[s"); // Save cursor position
+
+  displayUserSelection();
+}
+
+function displayUserSelection() {
+  // Restore to saved position and clear everything below
+  process.stdout.write("\x1b[u"); // Restore cursor position
+  process.stdout.write("\x1b[J"); // Erase from cursor to end of screen
+
+  // Write header
+  process.stdout.write(
+    color(
+      "Select user (↑↓ navigate, Enter/Tab/Space select, Esc cancel):",
+      "cyan",
+    ) + "\n",
+  );
+
+  userSelectUsers.forEach(function (user, index) {
+    var prefix = index === userSelectSelected ? "> " : "  ";
+    var userColor = getUserColor(user);
+    process.stdout.write(prefix + userColor + user + resetColor() + "\n");
+  });
+}
+
+function completeUserSelection() {
+  var selectedUser = userSelectUsers[userSelectSelected];
+
+  // Clear the user selection display
+  process.stdout.write("\x1b[u"); // Restore cursor position
+  process.stdout.write("\x1b[J"); // Erase from cursor to end of screen
+
+  // Build the new line with the selected username
+  var newLine = savedLine + "@" + selectedUser + " ";
+
+  // Reset state
+  userSelectMode = false;
+  userSelectUsers = [];
+  userSelectSelected = 0;
+
+  // Set readline state and display
+  rl.line = newLine;
+  rl.cursor = newLine.length;
+  rl._refreshLine();
+}
+
+function cancelUserSelection() {
+  // Clear the user selection display
+  process.stdout.write("\x1b[u"); // Restore cursor position
+  process.stdout.write("\x1b[J"); // Erase from cursor to end of screen
+
+  // Restore original line (without the @)
+  userSelectMode = false;
+  userSelectUsers = [];
+  userSelectSelected = 0;
+
+  rl.line = savedLine;
+  rl.cursor = savedCursor;
+  rl._refreshLine();
+}
 
 function console_out(msg) {
   process.stdout.clearLine();
@@ -199,6 +339,11 @@ function show_help() {
 }
 
 rl.on("line", function (line) {
+  // Skip if we're in user selection mode
+  if (userSelectMode) {
+    return;
+  }
+
   // Move cursor up and clear the line to remove the input echo
   process.stdout.write("\x1b[1A"); // Move cursor up one line
   process.stdout.clearLine();
