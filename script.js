@@ -114,11 +114,154 @@ function joinChat() {
 
   // Handle sending messages
   document.getElementById("send-button").addEventListener("click", sendMessage);
-  document
-    .getElementById("message-input")
-    .addEventListener("keypress", function (e) {
-      if (e.key === "Enter") sendMessage();
+  var messageInput = document.getElementById("message-input");
+  messageInput.addEventListener("keypress", function (e) {
+    if (e.key === "Enter") {
+      if (autocompleteVisible && autocompleteSelected >= 0) {
+        selectAutocompleteUser();
+        e.preventDefault();
+      } else {
+        sendMessage();
+      }
+    }
+  });
+
+  // Autocomplete functionality
+  var autocompleteVisible = false;
+  var autocompleteUsers = [];
+  var autocompleteSelected = -1;
+  var autocompleteStartPos = -1;
+
+  messageInput.addEventListener("input", function (e) {
+    var value = messageInput.value;
+    var cursorPos = messageInput.selectionStart;
+
+    // Find @ symbol before cursor
+    var atPos = value.lastIndexOf("@", cursorPos - 1);
+
+    if (atPos >= 0 && (atPos === 0 || value[atPos - 1] === " ")) {
+      // Extract text after @
+      var searchText = value.substring(atPos + 1, cursorPos).toLowerCase();
+
+      // Filter users
+      var filtered = currentUserList.filter(function (user) {
+        return user.toLowerCase().startsWith(searchText) && user !== nick;
+      });
+
+      if (filtered.length > 0) {
+        showAutocomplete(filtered, atPos);
+      } else {
+        hideAutocomplete();
+      }
+    } else {
+      hideAutocomplete();
+    }
+  });
+
+  messageInput.addEventListener("keydown", function (e) {
+    if (!autocompleteVisible) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      autocompleteSelected = Math.min(
+        autocompleteSelected + 1,
+        autocompleteUsers.length - 1,
+      );
+      updateAutocompleteSelection();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      autocompleteSelected = Math.max(autocompleteSelected - 1, 0);
+      updateAutocompleteSelection();
+    } else if (e.key === "Escape") {
+      hideAutocomplete();
+    } else if (e.key === "Tab" && autocompleteUsers.length > 0) {
+      e.preventDefault();
+      if (autocompleteSelected < 0) autocompleteSelected = 0;
+      selectAutocompleteUser();
+    }
+  });
+
+  // Hide autocomplete when clicking outside
+  document.addEventListener("click", function (e) {
+    if (
+      e.target !== messageInput &&
+      !document.getElementById("autocomplete-dropdown").contains(e.target)
+    ) {
+      hideAutocomplete();
+    }
+  });
+
+  function showAutocomplete(users, atPos) {
+    autocompleteVisible = true;
+    autocompleteUsers = users;
+    autocompleteSelected = 0;
+    autocompleteStartPos = atPos;
+
+    var dropdown = document.getElementById("autocomplete-dropdown");
+    dropdown.innerHTML = "";
+    dropdown.style.display = "block";
+
+    users.forEach(function (user, index) {
+      var item = document.createElement("div");
+      item.className = "autocomplete-item";
+      if (index === 0) item.classList.add("selected");
+      item.textContent = user;
+      item.style.color = getUserColor(user);
+      item.addEventListener("mouseenter", function () {
+        autocompleteSelected = index;
+        updateAutocompleteSelection();
+      });
+      item.addEventListener("click", function () {
+        selectAutocompleteUser();
+      });
+      dropdown.appendChild(item);
     });
+  }
+
+  function updateAutocompleteSelection() {
+    var items = document.querySelectorAll(".autocomplete-item");
+    items.forEach(function (item, index) {
+      if (index === autocompleteSelected) {
+        item.classList.add("selected");
+        item.scrollIntoView({ block: "nearest" });
+      } else {
+        item.classList.remove("selected");
+      }
+    });
+  }
+
+  function selectAutocompleteUser() {
+    if (
+      autocompleteSelected >= 0 &&
+      autocompleteSelected < autocompleteUsers.length
+    ) {
+      var selectedUser = autocompleteUsers[autocompleteSelected];
+      var value = messageInput.value;
+      var cursorPos = messageInput.selectionStart;
+
+      // Replace from @ to cursor with selected username
+      var newValue =
+        value.substring(0, autocompleteStartPos) +
+        "@" +
+        selectedUser +
+        " " +
+        value.substring(cursorPos);
+      messageInput.value = newValue;
+      messageInput.selectionStart = messageInput.selectionEnd =
+        autocompleteStartPos + selectedUser.length + 2;
+
+      hideAutocomplete();
+      messageInput.focus();
+    }
+  }
+
+  function hideAutocomplete() {
+    autocompleteVisible = false;
+    autocompleteUsers = [];
+    autocompleteSelected = -1;
+    autocompleteStartPos = -1;
+    document.getElementById("autocomplete-dropdown").style.display = "none";
+  }
 }
 
 function sendMessage() {

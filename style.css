@@ -110,6 +110,36 @@ body {
   color: #c586c0;
 }
 
+#autocomplete-dropdown {
+  position: absolute;
+  bottom: 70px;
+  left: 15px;
+  right: 15px;
+  background-color: #2d2d2d;
+  border: 2px solid #4ec9b0;
+  border-radius: 5px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.autocomplete-item {
+  padding: 10px 15px;
+  cursor: pointer;
+  color: #d4d4d4;
+  border-bottom: 1px solid #3e3e3e;
+}
+
+.autocomplete-item:last-child {
+  border-bottom: none;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.selected {
+  background-color: #4ec9b0;
+  color: #1e1e1e;
+}
+
 #input-area {
   background-color: #2d2d2d;
   padding: 15px;
