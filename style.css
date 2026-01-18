@@ -103,6 +103,7 @@ body {
 
 .help {
   color: #dcdcaa;
+  white-space: pre-wrap;
 }
 
 .userlist {
@@ -137,6 +138,28 @@ body {
   border-radius: 5px;
   cursor: pointer;
   font-weight: bold;
+}
+
+/* Text formatting */
+.text-bold {
+  font-weight: bold;
+}
+
+.text-italic {
+  font-style: italic;
+}
+
+.text-underline {
+  text-decoration: underline;
+}
+
+.text-strikethrough {
+  text-decoration: line-through;
+}
+
+/* Combined underline and strikethrough */
+.text-underline.text-strikethrough {
+  text-decoration: underline line-through;
 }
 
 #send-button:hover {

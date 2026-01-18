@@ -210,12 +210,77 @@ function chatCommand(cmd, arg) {
 
 function showHelp() {
   addMessage("Available commands:", "help");
-  addMessage("  /nick <name> - Change your nickname", "help");
   addMessage("  @username <message> - Send a private message", "help");
+  addMessage("  /nick <name> - Change your nickname", "help");
   addMessage("  /me <action> - Send an emote", "help");
   addMessage("  /who - Show online users", "help");
   addMessage("  /help - Show this help message", "help");
   addMessage("  /exit - Log out of chat", "help");
+  addMessage("Text formatting:", "help");
+  addMessage("  **bold**, *italic*, _underline_, ~strikethrough~", "help");
+  addMessage("  Combine and nest styles in any order", "help");
+}
+
+function formatText(text) {
+  // Escape HTML first to prevent XSS
+  var div = document.createElement("div");
+  div.textContent = text;
+  var escaped = div.innerHTML;
+
+  // Style markers and their corresponding CSS classes
+  var markers = [
+    { pattern: "**", className: "text-bold", name: "bold" },
+    { pattern: "*", className: "text-italic", name: "italic" },
+    { pattern: "_", className: "text-underline", name: "underline" },
+    { pattern: "~", className: "text-strikethrough", name: "strike" },
+  ];
+
+  // Parse text with nested style support
+  var result = "";
+  var i = 0;
+  var activeStyles = {}; // Track which styles are currently active
+
+  while (i < escaped.length) {
+    var foundMarker = false;
+
+    // Check for markers (longest first to handle ** before *)
+    for (var m = 0; m < markers.length; m++) {
+      var marker = markers[m];
+      if (escaped.substr(i, marker.pattern.length) === marker.pattern) {
+        // Toggle this style
+        if (activeStyles[marker.name]) {
+          // Close this style
+          result += "</span>";
+          delete activeStyles[marker.name];
+        } else {
+          // Open this style - collect all active classes
+          activeStyles[marker.name] = true;
+          var classes = [];
+          for (var s = 0; s < markers.length; s++) {
+            if (activeStyles[markers[s].name]) {
+              classes.push(markers[s].className);
+            }
+          }
+          result += '<span class="' + classes.join(" ") + '">';
+        }
+        i += marker.pattern.length;
+        foundMarker = true;
+        break;
+      }
+    }
+
+    if (!foundMarker) {
+      result += escaped[i];
+      i++;
+    }
+  }
+
+  // Close any unclosed styles
+  for (var style in activeStyles) {
+    result += "</span>";
+  }
+
+  return result;
 }
 
 function getUserColor(username) {
@@ -265,8 +330,13 @@ function addMessage(text, type, nickName) {
     nickSpan.textContent = "<" + nickName + "> ";
     msgDiv.appendChild(nickSpan);
 
-    var textNode = document.createTextNode(text.substr(nickName.length + 3));
-    msgDiv.appendChild(textNode);
+    var messageText = text.substr(nickName.length + 3);
+    var formattedSpan = document.createElement("span");
+    formattedSpan.innerHTML = formatText(messageText);
+    msgDiv.appendChild(formattedSpan);
+  } else if (type === "chat" || type === "emote" || type === "tell") {
+    // Apply formatting to chat, emote, and tell messages
+    msgDiv.innerHTML = formatText(text);
   } else {
     msgDiv.textContent = text;
   }
