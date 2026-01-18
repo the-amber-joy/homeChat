@@ -18,13 +18,13 @@ var notificationTheme = localStorage.getItem("notificationTheme") || "fard";
 
 // Available notification themes
 // Each theme has 3 sounds: private, mention, chat
-// Sound files should be at: ./sounds/{theme}/{type}.mp3
+// Sound files should be at: ./sounds/{theme}/{type}-{theme}.mp3
 var notificationThemes = {
   fard: {
     name: "Fard",
-    private: "./sounds/fard/private.mp3",
-    mention: "./sounds/fard/mention.mp3",
-    chat: "./sounds/fard/chat.mp3",
+    private: "./sounds/fard/private-fard.mp3",
+    mention: "./sounds/fard/mention-fard.mp3",
+    chat: "./sounds/fard/chat-fard.mp3",
   },
   // Add more themes here:
   // example: {

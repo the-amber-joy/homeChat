@@ -35,6 +35,18 @@ var server = http.createServer(function (req, res) {
         res.end(data);
       }
     });
+  } else if (req.url.startsWith("/sounds/") && req.url.endsWith(".mp3")) {
+    // Serve sound files
+    var soundPath = path.join(__dirname, req.url);
+    fs.readFile(soundPath, function (err, data) {
+      if (err) {
+        res.writeHead(404);
+        res.end("Sound file not found");
+      } else {
+        res.writeHead(200, { "Content-Type": "audio/mpeg" });
+        res.end(data);
+      }
+    });
   } else {
     res.writeHead(404);
     res.end("Not found");
