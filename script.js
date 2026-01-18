@@ -337,19 +337,12 @@ function saveChatHistory() {
   }
 
   localStorage.setItem("chatHistory", JSON.stringify(chatHistory));
-  localStorage.setItem("chatHistoryTime", Date.now());
 }
 
 function restoreChatHistory() {
   var chatHistory = localStorage.getItem("chatHistory");
-  var chatHistoryTime = localStorage.getItem("chatHistoryTime");
 
-  // Only restore if less than 24 hours old
-  if (
-    chatHistory &&
-    chatHistoryTime &&
-    Date.now() - chatHistoryTime < 24 * 60 * 60 * 1000
-  ) {
+  if (chatHistory) {
     var messagesDiv = document.getElementById("messages");
     var messages = JSON.parse(chatHistory);
 
@@ -363,10 +356,6 @@ function restoreChatHistory() {
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
 
     return true; // History was restored
-  } else if (chatHistory) {
-    // Clear expired history from localStorage
-    localStorage.removeItem("chatHistory");
-    localStorage.removeItem("chatHistoryTime");
   }
 
   return false; // No history to restore
