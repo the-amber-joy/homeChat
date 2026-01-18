@@ -3,6 +3,7 @@ var nick;
 var userListVisible = false;
 var currentUserList = [];
 var clientVersion = localStorage.getItem("appVersion") || null;
+var userColorCache = {}; // Cache colors by username to persist across nick changes
 
 // Check if user has a saved nickname
 var savedNick = localStorage.getItem("chatNickname");
@@ -311,6 +312,15 @@ function chatCommand(cmd, arg) {
   switch (cmd) {
     case "nick":
       var notice = nick + " changed their name to " + arg;
+        var oldNick = nick.toLowerCase();
+      var newNick = arg.toLowerCase();
+      
+      // Transfer color from old nickname to new nickname
+      if (userColorCache[oldNick]) {
+        userColorCache[newNick] = userColorCache[oldNick];
+        delete userColorCache[oldNick];
+      }
+      
       nick = arg;
       localStorage.setItem("chatNickname", nick);
       document.getElementById("current-nick").textContent = nick;
@@ -427,9 +437,14 @@ function formatText(text) {
 }
 
 function getUserColor(username) {
+  // Check if we have a cached color for this user
+  var lowerUsername = username.toLowerCase();
+  if (userColorCache[lowerUsername]) {
+    return userColorCache[lowerUsername];
+  }
+
   // Generate a consistent color for each username (case-insensitive)
   var hash = 0;
-  var lowerUsername = username.toLowerCase();
   for (var i = 0; i < lowerUsername.length; i++) {
     hash = lowerUsername.charCodeAt(i) + ((hash << 5) - hash);
   }
@@ -440,7 +455,12 @@ function getUserColor(username) {
   var saturation = 65 + (Math.abs(hash) % 20); // 65-85%
   var lightness = 60 + (Math.abs(hash >> 8) % 15); // 60-75%
 
-  return "hsl(" + hue + ", " + saturation + "%, " + lightness + "%)";
+  var color = "hsl(" + hue + ", " + saturation + "%, " + lightness + "%)";
+  
+  // Cache this color
+  userColorCache[lowerUsername] = color;
+  
+  return color;
 }
 
 function handleMessage(data) {
