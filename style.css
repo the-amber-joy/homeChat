@@ -348,7 +348,8 @@ body {
   border-radius: 4px;
 }
 
-.settings-option input[type="radio"] {
+.settings-option input[type="radio"],
+.settings-option input[type="checkbox"] {
   margin-right: 10px;
   accent-color: #4ec9b0;
 }

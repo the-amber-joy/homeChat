@@ -31,19 +31,15 @@
         <div class="settings-section">
           <h4>Notification Sounds</h4>
           <label class="settings-option">
-            <input type="radio" name="notification" value="none" checked />
-            <span>No sounds</span>
+            <input type="checkbox" id="notify-private" />
+            <span>Private messages</span>
           </label>
           <label class="settings-option">
-            <input type="radio" name="notification" value="private" />
-            <span>Private messages only</span>
-          </label>
-          <label class="settings-option">
-            <input type="radio" name="notification" value="tagged" />
+            <input type="checkbox" id="notify-tagged" />
             <span>When I'm tagged (@mentioned)</span>
           </label>
           <label class="settings-option">
-            <input type="radio" name="notification" value="all" />
+            <input type="checkbox" id="notify-all" />
             <span>All messages</span>
           </label>
         </div>

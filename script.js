@@ -6,8 +6,14 @@ var currentUserList = [];
 var clientVersion = localStorage.getItem("appVersion") || null;
 var userColorCache = {}; // Cache colors by username to persist across nick changes
 
-// Notification settings
-var notificationSetting = localStorage.getItem("notificationSetting") || "none";
+// Notification settings - each type can be enabled independently
+var notificationSettings = JSON.parse(
+  localStorage.getItem("notificationSettings"),
+) || {
+  private: false,
+  tagged: false,
+  all: false,
+};
 var notificationTheme = localStorage.getItem("notificationTheme") || "fard";
 
 // Available notification themes
@@ -49,11 +55,15 @@ function playNotificationSound(soundType) {
   });
 }
 
-// Update bell icon based on notification setting
-function updateBellIcon(setting) {
+// Update bell icon based on notification settings
+function updateBellIcon() {
   var button = document.getElementById("audio-button");
   if (button) {
-    var iconName = setting === "none" ? "bell-off" : "bell";
+    var anyEnabled =
+      notificationSettings.private ||
+      notificationSettings.tagged ||
+      notificationSettings.all;
+    var iconName = anyEnabled ? "bell" : "bell-off";
     button.innerHTML = '<i data-feather="' + iconName + '"></i>';
     if (typeof feather !== "undefined") {
       feather.replace();
@@ -63,16 +73,12 @@ function updateBellIcon(setting) {
 
 // Check if notification should play and return the sound type
 function getNotificationSoundType(messageType, messageText) {
-  if (notificationSetting === "none") {
-    return null;
-  }
-
   // Private messages
   if (messageType === "tell") {
     if (
-      notificationSetting === "private" ||
-      notificationSetting === "tagged" ||
-      notificationSetting === "all"
+      notificationSettings.private ||
+      notificationSettings.tagged ||
+      notificationSettings.all
     ) {
       return "private";
     }
@@ -83,14 +89,14 @@ function getNotificationSoundType(messageType, messageText) {
   var isMentioned = mentionRegex.test(messageText);
 
   if (isMentioned) {
-    if (notificationSetting === "tagged" || notificationSetting === "all") {
+    if (notificationSettings.tagged || notificationSettings.all) {
       return "mention";
     }
   }
 
   // Regular chat/emote messages
   if (messageType === "chat" || messageType === "emote") {
-    if (notificationSetting === "all") {
+    if (notificationSettings.all) {
       return "chat";
     }
   }
@@ -100,26 +106,7 @@ function getNotificationSoundType(messageType, messageText) {
 
 // Legacy function for compatibility - now uses getNotificationSoundType
 function shouldPlayNotification(messageType, messageText) {
-  if (notificationSetting === "none") {
-    return false;
-  }
-  if (notificationSetting === "private") {
-    return messageType === "tell";
-  }
-  if (notificationSetting === "tagged") {
-    // Check if current user is mentioned in the message
-    if (messageType === "tell") return true;
-    var mentionRegex = new RegExp("@" + nick + "\\b", "i");
-    return mentionRegex.test(messageText);
-  }
-  if (notificationSetting === "all") {
-    return (
-      messageType === "chat" ||
-      messageType === "tell" ||
-      messageType === "emote"
-    );
-  }
-  return false;
+  return getNotificationSoundType(messageType, messageText) !== null;
 }
 
 // Check if user has a saved nickname
@@ -243,27 +230,45 @@ function joinChat() {
       }
     });
 
-  // Initialize notification setting radio buttons
-  var savedSetting = localStorage.getItem("notificationSetting") || "all";
-  var radioButton = document.querySelector(
-    'input[name="notification"][value="' + savedSetting + '"]',
-  );
-  if (radioButton) {
-    radioButton.checked = true;
-  }
-  // Update bell icon based on saved setting
-  updateBellIcon(savedSetting);
+  // Initialize notification setting checkboxes
+  var privateCheckbox = document.getElementById("notify-private");
+  var taggedCheckbox = document.getElementById("notify-tagged");
+  var allCheckbox = document.getElementById("notify-all");
+
+  if (privateCheckbox) privateCheckbox.checked = notificationSettings.private;
+  if (taggedCheckbox) taggedCheckbox.checked = notificationSettings.tagged;
+  if (allCheckbox) allCheckbox.checked = notificationSettings.all;
+
+  // Update bell icon based on saved settings
+  updateBellIcon();
 
   // Handle notification setting changes
-  document
-    .querySelectorAll('input[name="notification"]')
-    .forEach(function (radio) {
-      radio.addEventListener("change", function () {
-        notificationSetting = this.value;
-        localStorage.setItem("notificationSetting", notificationSetting);
-        updateBellIcon(notificationSetting);
-      });
+  function saveNotificationSettings() {
+    localStorage.setItem(
+      "notificationSettings",
+      JSON.stringify(notificationSettings),
+    );
+    updateBellIcon();
+  }
+
+  if (privateCheckbox) {
+    privateCheckbox.addEventListener("change", function () {
+      notificationSettings.private = this.checked;
+      saveNotificationSettings();
     });
+  }
+  if (taggedCheckbox) {
+    taggedCheckbox.addEventListener("change", function () {
+      notificationSettings.tagged = this.checked;
+      saveNotificationSettings();
+    });
+  }
+  if (allCheckbox) {
+    allCheckbox.addEventListener("change", function () {
+      notificationSettings.all = this.checked;
+      saveNotificationSettings();
+    });
+  }
 
   // Initialize notification theme dropdown
   var themeSelect = document.getElementById("notification-theme");
