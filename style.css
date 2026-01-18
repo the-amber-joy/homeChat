@@ -199,6 +199,7 @@ body {
 }
 
 #send-button {
+  font-family: "Courier New", monospace;
   padding: 10px 30px;
   font-size: 16px;
   background-color: var(--accent-color);
@@ -455,6 +456,7 @@ body {
   }
 
   #send-button {
+    font-family: "Courier New", monospace;
     padding: 10px 20px;
     font-size: 14px;
   }
