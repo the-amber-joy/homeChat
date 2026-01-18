@@ -89,6 +89,28 @@ function resetColor() {
   return "\x1b[0m";
 }
 
+function boldText() {
+  return "\x1b[1m";
+}
+
+function highlightMentions(text) {
+  // Find @username patterns and highlight if user is online
+  // Match alphanumeric, underscore, and hyphen characters
+  var regex = /@([\w-]+)/g;
+  return text.replace(regex, function (match, username) {
+    // Check if username is in current user list (case-insensitive)
+    var onlineUser = currentUserList.find(function (u) {
+      return u.toLowerCase() === username.toLowerCase();
+    });
+
+    if (onlineUser) {
+      return boldText() + getUserColor(onlineUser) + onlineUser + resetColor();
+    }
+
+    return match; // Not online, return as-is
+  });
+}
+
 function show_help() {
   console_out(color("Available commands:", "yellow"));
   console_out(color("  /nick <name> - Change your nickname", "yellow"));
@@ -189,7 +211,7 @@ socket.on("message", function (data) {
   if (data.type == "chat" && data.nick != nick) {
     leader =
       getUserColor(data.nick) + "<" + data.nick + ">" + resetColor() + " ";
-    console_out(leader + data.message);
+    console_out(leader + highlightMentions(data.message));
   } else if (data.type == "notice") {
     console_out(color(data.message, "cyan"));
   } else if (
@@ -197,9 +219,24 @@ socket.on("message", function (data) {
     data.to.toLowerCase() == nick.toLowerCase()
   ) {
     leader = color("[" + data.from + "->" + data.to + "]", "red");
-    console_out(leader + data.message);
+    console_out(leader + highlightMentions(data.message));
   } else if (data.type == "emote") {
-    console_out(color(data.message, "cyan"));
+    // Parse emote to highlight username in bold and their color
+    var spaceIndex = data.message.indexOf(" ");
+    if (spaceIndex > 0) {
+      var emoteNick = data.message.substring(0, spaceIndex);
+      var emoteAction = data.message.substring(spaceIndex + 1);
+      var output =
+        boldText() +
+        getUserColor(emoteNick) +
+        emoteNick +
+        resetColor() +
+        " " +
+        highlightMentions(emoteAction);
+      console_out(output);
+    } else {
+      console_out(color(data.message, "cyan"));
+    }
   }
 });
 
