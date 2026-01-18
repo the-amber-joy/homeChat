@@ -37,7 +37,7 @@ rl.question("Please enter a nickname: ", function (name) {
 function console_out(msg) {
   process.stdout.clearLine();
   process.stdout.cursorTo(0);
-  console.log(msg);
+  process.stdout.write(msg + "\n");
   rl.prompt(true);
 }
 
@@ -93,6 +93,81 @@ function boldText() {
   return "\x1b[1m";
 }
 
+function italicText() {
+  return "\x1b[3m";
+}
+
+function underlineText() {
+  return "\x1b[4m";
+}
+
+function strikethroughText() {
+  return "\x1b[9m";
+}
+
+function formatText(text) {
+  // Parse text formatting markers and convert to ANSI codes
+  var markers = [
+    { pattern: "**", code: boldText(), name: "bold" },
+    { pattern: "*", code: italicText(), name: "italic" },
+    { pattern: "_", code: underlineText(), name: "underline" },
+    { pattern: "~", code: strikethroughText(), name: "strike" },
+  ];
+
+  var result = "";
+  var i = 0;
+  var activeStyles = {}; // Track which styles are currently active
+  var styleStack = []; // Track order of style opening
+
+  while (i < text.length) {
+    var foundMarker = false;
+
+    // Check for markers (longest first to handle ** before *)
+    for (var m = 0; m < markers.length; m++) {
+      var marker = markers[m];
+      if (text.substr(i, marker.pattern.length) === marker.pattern) {
+        if (activeStyles[marker.name]) {
+          // Close this style - just reset all and reapply remaining
+          result += resetColor();
+          delete activeStyles[marker.name];
+          // Remove from stack
+          var idx = styleStack.indexOf(marker.name);
+          if (idx > -1) styleStack.splice(idx, 1);
+          // Reapply remaining styles
+          for (var s = 0; s < styleStack.length; s++) {
+            for (var n = 0; n < markers.length; n++) {
+              if (markers[n].name === styleStack[s]) {
+                result += markers[n].code;
+                break;
+              }
+            }
+          }
+        } else {
+          // Open this style
+          activeStyles[marker.name] = true;
+          styleStack.push(marker.name);
+          result += marker.code;
+        }
+        i += marker.pattern.length;
+        foundMarker = true;
+        break;
+      }
+    }
+
+    if (!foundMarker) {
+      result += text[i];
+      i++;
+    }
+  }
+
+  // Close any unclosed styles
+  if (styleStack.length > 0) {
+    result += resetColor();
+  }
+
+  return result;
+}
+
 function highlightMentions(text) {
   // Find @username patterns and highlight if user is online
   // Match alphanumeric, underscore, and hyphen characters
@@ -124,6 +199,11 @@ function show_help() {
 }
 
 rl.on("line", function (line) {
+  // Move cursor up and clear the line to remove the input echo
+  process.stdout.write("\x1b[1A"); // Move cursor up one line
+  process.stdout.clearLine();
+  process.stdout.cursorTo(0);
+
   if (line[0] == "/" && line.length > 1) {
     var cmd = line.match(/[a-z]+\b/)[0];
     var arg = line.substr(cmd.length + 2, line.length);
@@ -150,7 +230,8 @@ rl.on("line", function (line) {
         from: actualFrom,
       });
       console_out(
-        color("[" + actualFrom + " -> " + actualTo + "] " + message, "red"),
+        color("[" + actualFrom + " -> " + actualTo + "] ", "red") +
+          highlightMentions(formatText(message)),
       );
     } else {
       console_out("Usage: @username message");
@@ -208,10 +289,10 @@ function chat_command(cmd, arg) {
 
 socket.on("message", function (data) {
   var leader;
-  if (data.type == "chat" && data.nick != nick) {
+  if (data.type == "chat") {
     leader =
       getUserColor(data.nick) + "<" + data.nick + ">" + resetColor() + " ";
-    console_out(leader + highlightMentions(data.message));
+    console_out(leader + highlightMentions(formatText(data.message)));
   } else if (data.type == "notice") {
     console_out(color(data.message, "cyan"));
   } else if (
@@ -219,7 +300,7 @@ socket.on("message", function (data) {
     data.to.toLowerCase() == nick.toLowerCase()
   ) {
     leader = color("[" + data.from + "->" + data.to + "]", "red");
-    console_out(leader + highlightMentions(data.message));
+    console_out(leader + " " + highlightMentions(formatText(data.message)));
   } else if (data.type == "emote") {
     // Parse emote to highlight username in bold and their color
     var spaceIndex = data.message.indexOf(" ");
@@ -232,7 +313,7 @@ socket.on("message", function (data) {
         emoteNick +
         resetColor() +
         " " +
-        highlightMentions(emoteAction);
+        highlightMentions(formatText(emoteAction));
       console_out(output);
     } else {
       console_out(color(data.message, "cyan"));
