@@ -543,8 +543,28 @@ function addMessage(text, type, nickName) {
     var formattedSpan = document.createElement("span");
     formattedSpan.innerHTML = formatText(messageText);
     msgDiv.appendChild(formattedSpan);
-  } else if (type === "chat" || type === "emote" || type === "tell") {
-    // Apply formatting to chat, emote, and tell messages
+  } else if (type === "emote") {
+    // Parse emote to highlight username in bold and their color
+    // Emote format: "username action text"
+    var spaceIndex = text.indexOf(" ");
+    if (spaceIndex > 0) {
+      var emoteNick = text.substring(0, spaceIndex);
+      var emoteAction = text.substring(spaceIndex + 1);
+
+      var nickSpan = document.createElement("span");
+      nickSpan.className = "text-bold";
+      nickSpan.style.color = getUserColor(emoteNick);
+      nickSpan.textContent = emoteNick;
+      msgDiv.appendChild(nickSpan);
+
+      var actionSpan = document.createElement("span");
+      actionSpan.innerHTML = " " + formatText(emoteAction);
+      msgDiv.appendChild(actionSpan);
+    } else {
+      msgDiv.innerHTML = formatText(text);
+    }
+  } else if (type === "chat" || type === "tell") {
+    // Apply formatting to chat and tell messages
     msgDiv.innerHTML = formatText(text);
   } else {
     msgDiv.textContent = text;
