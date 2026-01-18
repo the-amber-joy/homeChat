@@ -11,7 +11,8 @@
 <body>
   <div id="login-screen">
     <h1>Welcome to Home Chat</h1>
-    <input type="text" id="nickname-input" placeholder="Enter your nickname" maxlength="20" autofocus />
+    <input type="text" id="nickname-input" placeholder="Enter your nickname" maxlength="20" pattern="[a-zA-Z0-9_-]+"
+      title="Only letters, numbers, underscores, and hyphens allowed" autofocus />
     <button id="join-button">Join Chat</button>
   </div>
 

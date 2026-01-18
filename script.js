@@ -29,6 +29,14 @@ function joinChat() {
     return;
   }
 
+  // Validate nickname contains only alphanumeric, underscore, and hyphen
+  if (!/^[a-zA-Z0-9_-]+$/.test(nickInput)) {
+    alert(
+      "Nickname can only contain letters, numbers, underscores, and hyphens",
+    );
+    return;
+  }
+
   nick = nickInput;
   // Save nickname to localStorage
   localStorage.setItem("chatNickname", nick);
@@ -312,15 +320,15 @@ function chatCommand(cmd, arg) {
   switch (cmd) {
     case "nick":
       var notice = nick + " changed their name to " + arg;
-        var oldNick = nick.toLowerCase();
+      var oldNick = nick.toLowerCase();
       var newNick = arg.toLowerCase();
-      
+
       // Transfer color from old nickname to new nickname
       if (userColorCache[oldNick]) {
         userColorCache[newNick] = userColorCache[oldNick];
         delete userColorCache[oldNick];
       }
-      
+
       nick = arg;
       localStorage.setItem("chatNickname", nick);
       document.getElementById("current-nick").textContent = nick;
@@ -380,6 +388,9 @@ function formatText(text) {
   div.textContent = text;
   var escaped = div.innerHTML;
 
+  // Process @mentions BEFORE style processing (on plain text)
+  escaped = highlightMentions(escaped);
+
   // Style markers and their corresponding CSS classes
   var markers = [
     { pattern: "**", className: "text-bold", name: "bold" },
@@ -395,6 +406,16 @@ function formatText(text) {
 
   while (i < escaped.length) {
     var foundMarker = false;
+
+    // Skip style processing inside HTML tags (for @mentions)
+    if (escaped[i] === "<") {
+      var closingBracket = escaped.indexOf(">", i);
+      if (closingBracket !== -1) {
+        result += escaped.substring(i, closingBracket + 1);
+        i = closingBracket + 1;
+        continue;
+      }
+    }
 
     // Check for markers (longest first to handle ** before *)
     for (var m = 0; m < markers.length; m++) {
@@ -436,6 +457,31 @@ function formatText(text) {
   return result;
 }
 
+function highlightMentions(text) {
+  // Find @username patterns and highlight if user is online
+  // Match alphanumeric, underscore, and hyphen characters
+  var regex = /@([\w-]+)/g;
+  return text.replace(regex, function (match, username) {
+    // Check if username is in current user list (case-insensitive)
+    var onlineUser = currentUserList.find(function (u) {
+      return u.toLowerCase() === username.toLowerCase();
+    });
+
+    if (onlineUser) {
+      var color = getUserColor(onlineUser);
+      return (
+        '<span class="text-bold" style="color: ' +
+        color +
+        '">' +
+        onlineUser +
+        "</span>"
+      );
+    }
+
+    return match; // Not online, return as-is
+  });
+}
+
 function getUserColor(username) {
   // Check if we have a cached color for this user
   var lowerUsername = username.toLowerCase();
@@ -456,10 +502,10 @@ function getUserColor(username) {
   var lightness = 60 + (Math.abs(hash >> 8) % 15); // 60-75%
 
   var color = "hsl(" + hue + ", " + saturation + "%, " + lightness + "%)";
-  
+
   // Cache this color
   userColorCache[lowerUsername] = color;
-  
+
   return color;
 }
 
