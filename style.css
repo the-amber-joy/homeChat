@@ -312,6 +312,29 @@ body {
   font-size: 14px;
 }
 
+.settings-section + .settings-section {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #3e3e3e;
+}
+
+#notification-theme {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 14px;
+  background-color: #1e1e1e;
+  color: #d4d4d4;
+  border: 2px solid #4ec9b0;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: "Courier New", monospace;
+}
+
+#notification-theme:focus {
+  outline: none;
+  border-color: #6fdfbf;
+}
+
 .settings-option {
   display: flex;
   align-items: center;

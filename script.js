@@ -8,14 +8,45 @@ var userColorCache = {}; // Cache colors by username to persist across nick chan
 
 // Notification settings
 var notificationSetting = localStorage.getItem("notificationSetting") || "none";
+var notificationTheme = localStorage.getItem("notificationTheme") || "fard";
 
-// Placeholder for notification sound
-function playNotificationSound() {
-  // TODO: Replace with actual notification sound
-  console.log("🔔 Notification sound would play here");
-  // Example implementation when sound file is added:
-  // var audio = new Audio('./notification.mp3');
-  // audio.play().catch(function(e) { console.log('Audio play failed:', e); });
+// Available notification themes
+// Each theme has 3 sounds: private, mention, chat
+// Sound files should be at: ./sounds/{theme}/{type}.mp3
+var notificationThemes = {
+  fard: {
+    name: "Fard",
+    private: "./sounds/fard/private.mp3",
+    mention: "./sounds/fard/mention.mp3",
+    chat: "./sounds/fard/chat.mp3",
+  },
+  // Add more themes here:
+  // example: {
+  //   name: "Example",
+  //   private: "./sounds/example/private.mp3",
+  //   mention: "./sounds/example/mention.mp3",
+  //   chat: "./sounds/example/chat.mp3"
+  // }
+};
+
+// Play notification sound based on message type
+function playNotificationSound(soundType) {
+  var theme = notificationThemes[notificationTheme];
+  if (!theme) {
+    console.log("Unknown notification theme:", notificationTheme);
+    return;
+  }
+
+  var soundFile = theme[soundType];
+  if (!soundFile) {
+    console.log("Unknown sound type:", soundType);
+    return;
+  }
+
+  var audio = new Audio(soundFile);
+  audio.play().catch(function (e) {
+    console.log("Audio play failed:", e);
+  });
 }
 
 // Update bell icon based on notification setting
@@ -30,7 +61,44 @@ function updateBellIcon(setting) {
   }
 }
 
-// Check if notification should play based on settings and message type
+// Check if notification should play and return the sound type
+function getNotificationSoundType(messageType, messageText) {
+  if (notificationSetting === "none") {
+    return null;
+  }
+
+  // Private messages
+  if (messageType === "tell") {
+    if (
+      notificationSetting === "private" ||
+      notificationSetting === "tagged" ||
+      notificationSetting === "all"
+    ) {
+      return "private";
+    }
+  }
+
+  // Check for mentions
+  var mentionRegex = new RegExp("@" + nick + "\\b", "i");
+  var isMentioned = mentionRegex.test(messageText);
+
+  if (isMentioned) {
+    if (notificationSetting === "tagged" || notificationSetting === "all") {
+      return "mention";
+    }
+  }
+
+  // Regular chat/emote messages
+  if (messageType === "chat" || messageType === "emote") {
+    if (notificationSetting === "all") {
+      return "chat";
+    }
+  }
+
+  return null;
+}
+
+// Legacy function for compatibility - now uses getNotificationSoundType
 function shouldPlayNotification(messageType, messageText) {
   if (notificationSetting === "none") {
     return false;
@@ -196,6 +264,16 @@ function joinChat() {
         updateBellIcon(notificationSetting);
       });
     });
+
+  // Initialize notification theme dropdown
+  var themeSelect = document.getElementById("notification-theme");
+  if (themeSelect) {
+    themeSelect.value = notificationTheme;
+    themeSelect.addEventListener("change", function () {
+      notificationTheme = this.value;
+      localStorage.setItem("notificationTheme", notificationTheme);
+    });
+  }
 
   // Close user list or settings when clicking outside
   document.addEventListener("click", function (e) {
@@ -617,8 +695,9 @@ function handleMessage(data) {
   if (data.type === "chat" && data.nick !== nick) {
     addMessage("<" + data.nick + "> " + data.message, "chat", data.nick);
     // Check if we should play notification
-    if (shouldPlayNotification("chat", data.message)) {
-      playNotificationSound();
+    var soundType = getNotificationSoundType("chat", data.message);
+    if (soundType) {
+      playNotificationSound(soundType);
     }
   } else if (data.type === "notice") {
     addMessage(data.message, "notice");
@@ -630,15 +709,17 @@ function handleMessage(data) {
       "[" + data.from + " -> " + data.to + "] " + data.message,
       "tell",
     );
-    // Always check for private message notification
-    if (shouldPlayNotification("tell", data.message)) {
-      playNotificationSound();
+    // Check for private message notification
+    var soundType = getNotificationSoundType("tell", data.message);
+    if (soundType) {
+      playNotificationSound(soundType);
     }
   } else if (data.type === "emote") {
     addMessage(data.message, "emote");
     // Check if we should play notification for emote
-    if (shouldPlayNotification("emote", data.message)) {
-      playNotificationSound();
+    var soundType = getNotificationSoundType("emote", data.message);
+    if (soundType) {
+      playNotificationSound(soundType);
     }
   }
 }
