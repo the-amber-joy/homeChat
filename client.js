@@ -29,11 +29,16 @@ rl.question("Please enter a nickname: ", function (name) {
         color("Online users (" + currentUserList.length + "):", "yellow"),
       );
       currentUserList.forEach(function (user) {
-        var displayUser = "  " + user;
-        if (user === nick) {
+        var username = typeof user === "string" ? user : user.nick;
+        var isIdle = typeof user === "object" && user.idle;
+        var displayUser = "  " + username;
+        if (username === nick) {
           displayUser += " (you)";
         }
-        console_out(getUserColor(user) + displayUser + resetColor());
+        if (isIdle) {
+          displayUser += " [idle]";
+        }
+        console_out(getUserColor(username) + displayUser + resetColor());
       });
       console_out("");
     }
@@ -53,22 +58,18 @@ process.stdin.on("keypress", function (str, key) {
 
   // Handle user selection navigation
   if (userSelectMode) {
-    if (key.name === "down") {
+    if (key.name === "right" || key.name === "down") {
       userSelectSelected = Math.min(
         userSelectSelected + 1,
         userSelectUsers.length - 1,
       );
       displayUserSelection();
       return;
-    } else if (key.name === "up") {
+    } else if (key.name === "left" || key.name === "up") {
       userSelectSelected = Math.max(userSelectSelected - 1, 0);
       displayUserSelection();
       return;
-    } else if (
-      key.name === "return" ||
-      key.name === "tab" ||
-      key.name === "space"
-    ) {
+    } else if (key.name === "return" || key.name === "tab") {
       completeUserSelection();
       return;
     } else if (key.name === "escape") {
@@ -88,10 +89,14 @@ process.stdin.on("keypress", function (str, key) {
     if (cursor > 0 && line[cursor - 1] === "@") {
       var atPos = cursor - 1;
       if (atPos === 0 || line[atPos - 1] === " ") {
-        // Filter users (exclude self)
-        var filtered = currentUserList.filter(function (user) {
-          return user !== nick;
-        });
+        // Filter users (exclude self) and extract nicknames
+        var filtered = currentUserList
+          .map(function (user) {
+            return typeof user === "string" ? user : user.nick;
+          })
+          .filter(function (username) {
+            return username !== nick;
+          });
 
         if (filtered.length > 0) {
           startUserSelection(filtered, atPos);
@@ -123,18 +128,18 @@ function displayUserSelection() {
   process.stdout.write("\x1b[u"); // Restore cursor position
   process.stdout.write("\x1b[J"); // Erase from cursor to end of screen
 
-  // Write header
+  // Write header and users on the same line
   process.stdout.write(
-    color(
-      "Select user (↑↓ navigate, Enter/Tab/Space select, Esc cancel):",
-      "cyan",
-    ) + "\n",
+    color("Select user (←→ navigate, Enter/Tab select, Esc cancel): ", "cyan"),
   );
 
   userSelectUsers.forEach(function (user, index) {
-    var prefix = index === userSelectSelected ? "> " : "  ";
     var userColor = getUserColor(user);
-    process.stdout.write(prefix + userColor + user + resetColor() + "\n");
+    if (index === userSelectSelected) {
+      process.stdout.write("[" + userColor + user + resetColor() + "] ");
+    } else {
+      process.stdout.write(userColor + user + resetColor() + " ");
+    }
   });
 }
 
@@ -315,11 +320,16 @@ function highlightMentions(text) {
   return text.replace(regex, function (match, username) {
     // Check if username is in current user list (case-insensitive)
     var onlineUser = currentUserList.find(function (u) {
-      return u.toLowerCase() === username.toLowerCase();
+      var uName = typeof u === "string" ? u : u.nick;
+      return uName.toLowerCase() === username.toLowerCase();
     });
 
     if (onlineUser) {
-      return boldText() + getUserColor(onlineUser) + onlineUser + resetColor();
+      var displayName =
+        typeof onlineUser === "string" ? onlineUser : onlineUser.nick;
+      return (
+        boldText() + getUserColor(displayName) + displayName + resetColor()
+      );
     }
 
     return match; // Not online, return as-is
@@ -360,14 +370,24 @@ rl.on("line", function (line) {
       var to = line.substring(1, spaceIndex);
       var message = line.substring(spaceIndex + 1);
       // Find actual usernames (case-insensitive match)
-      var actualTo =
-        currentUserList.find(function (u) {
-          return u.toLowerCase() === to.toLowerCase();
-        }) || to;
-      var actualFrom =
-        currentUserList.find(function (u) {
-          return u.toLowerCase() === nick.toLowerCase();
-        }) || nick;
+      var foundTo = currentUserList.find(function (u) {
+        var uName = typeof u === "string" ? u : u.nick;
+        return uName.toLowerCase() === to.toLowerCase();
+      });
+      var actualTo = foundTo
+        ? typeof foundTo === "string"
+          ? foundTo
+          : foundTo.nick
+        : to;
+      var foundFrom = currentUserList.find(function (u) {
+        var uName = typeof u === "string" ? u : u.nick;
+        return uName.toLowerCase() === nick.toLowerCase();
+      });
+      var actualFrom = foundFrom
+        ? typeof foundFrom === "string"
+          ? foundFrom
+          : foundFrom.nick
+        : nick;
       socket.emit("send", {
         type: "tell",
         message: message,
@@ -412,11 +432,16 @@ function chat_command(cmd, arg) {
           color("Online users (" + currentUserList.length + "):", "yellow"),
         );
         currentUserList.forEach(function (user) {
-          var displayUser = "  " + user;
-          if (user === nick) {
+          var username = typeof user === "string" ? user : user.nick;
+          var isIdle = typeof user === "object" && user.idle;
+          var displayUser = "  " + username;
+          if (username === nick) {
             displayUser += " (you)";
           }
-          console_out(getUserColor(user) + displayUser + resetColor());
+          if (isIdle) {
+            displayUser += " [idle]";
+          }
+          console_out(getUserColor(username) + displayUser + resetColor());
         });
       }
       break;
