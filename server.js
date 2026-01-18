@@ -145,6 +145,9 @@ io.on("connection", function (socket) {
 
     if (targetSocketId) {
       var actualNick = users[targetSocketId];
+      var lowerNick = actualNick.toLowerCase();
+      // Mark as kicked to skip grace period on disconnect
+      pendingDisconnects[lowerNick] = "kicked";
       // Notify everyone about the kick
       io.emit("message", {
         type: "notice",
@@ -161,6 +164,15 @@ io.on("connection", function (socket) {
     }
   });
 
+  // Handle intentional exit (skip grace period)
+  socket.on("exit", function () {
+    if (users[socket.id]) {
+      var lowerNick = users[socket.id].toLowerCase();
+      // Mark this user as intentionally exiting
+      pendingDisconnects[lowerNick] = "intentional";
+    }
+  });
+
   // Handle disconnection
   socket.on("disconnect", function () {
     if (users[socket.id]) {
@@ -169,14 +181,23 @@ io.on("connection", function (socket) {
       delete users[socket.id];
       io.emit("userList", Object.values(users));
 
-      // Use grace period before announcing disconnect
-      pendingDisconnects[lowerNick] = setTimeout(function () {
+      // Check if this was an intentional exit or kick
+      if (
+        pendingDisconnects[lowerNick] === "intentional" ||
+        pendingDisconnects[lowerNick] === "kicked"
+      ) {
+        // Clean up - no grace period, no disconnect message (already sent notice)
         delete pendingDisconnects[lowerNick];
-        io.emit("message", {
-          type: "notice",
-          message: nick + " has disconnected",
-        });
-      }, DISCONNECT_GRACE_PERIOD);
+      } else {
+        // Use grace period before announcing disconnect
+        pendingDisconnects[lowerNick] = setTimeout(function () {
+          delete pendingDisconnects[lowerNick];
+          io.emit("message", {
+            type: "notice",
+            message: nick + " has disconnected",
+          });
+        }, DISCONNECT_GRACE_PERIOD);
+      }
     }
   });
 });
