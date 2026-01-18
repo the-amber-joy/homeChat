@@ -20,51 +20,43 @@ var notificationTheme = localStorage.getItem("notificationTheme") || "fard";
 // Each theme has 3 sounds: private, mention, chat
 // Sound files should be at: ./sounds/{theme}/{type}-{theme}.mp3
 var notificationThemes = {
-  fard: {
-    name: "Fard",
-    private: "./sounds/fard/private-fard.mp3",
-    mention: "./sounds/fard/mention-fard.mp3",
-    chat: "./sounds/fard/chat-fard.mp3",
-  },
+  fard: "Fard",
   // Add more themes here:
-  // example: {
-  //   name: "Example",
-  //   private: "./sounds/example/private.mp3",
-  //   mention: "./sounds/example/mention.mp3",
-  //   chat: "./sounds/example/chat.mp3"
-  // }
+  // example: "Example"
 };
+
+// Get sound file path for a theme and sound type
+function getThemeSoundPath(themeName, soundType) {
+  return "./sounds/" + themeName + "/" + soundType + "-" + themeName + ".mp3";
+}
 
 // Preloaded audio cache for instant playback
 var preloadedSounds = {};
 
 // Preload all sounds for a theme
 function preloadThemeSounds(themeName) {
-  var theme = notificationThemes[themeName];
-  if (!theme) return;
+  if (!notificationThemes[themeName]) return;
 
   preloadedSounds[themeName] = {};
   ["private", "mention", "chat"].forEach(function (soundType) {
-    if (theme[soundType]) {
-      var audio = new Audio(theme[soundType]);
-      audio.preload = "auto"; 
-      // Force the browser to fully load the audio
-      audio.load();
-      // Also try to decode by playing silently
-      audio.volume = 0;
-      audio
-        .play()
-        .then(function () {
-          audio.pause();
-          audio.currentTime = 0;
-          audio.volume = 1;
-        })
-        .catch(function () {
-          // Autoplay blocked, will load on first user interaction
-          audio.volume = 1;
-        });
-      preloadedSounds[themeName][soundType] = audio;
-    }
+    var audio = new Audio(getThemeSoundPath(themeName, soundType));
+    audio.preload = "auto";
+    // Force the browser to fully load the audio
+    audio.load();
+    // Also try to decode by playing silently
+    audio.volume = 0;
+    audio
+      .play()
+      .then(function () {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.volume = 1;
+      })
+      .catch(function () {
+        // Autoplay blocked, will load on first user interaction
+        audio.volume = 1;
+      });
+    preloadedSounds[themeName][soundType] = audio;
   });
 }
 
@@ -73,8 +65,7 @@ preloadThemeSounds(notificationTheme);
 
 // Play notification sound based on message type
 function playNotificationSound(soundType) {
-  var theme = notificationThemes[notificationTheme];
-  if (!theme) {
+  if (!notificationThemes[notificationTheme]) {
     console.log("Unknown notification theme:", notificationTheme);
     return;
   }
@@ -93,13 +84,7 @@ function playNotificationSound(soundType) {
   }
 
   // Fallback: create new Audio (will have delay)
-  var soundFile = theme[soundType];
-  if (!soundFile) {
-    console.log("Unknown sound type:", soundType);
-    return;
-  }
-
-  var audio = new Audio(soundFile);
+  var audio = new Audio(getThemeSoundPath(notificationTheme, soundType));
   audio.play().catch(function (e) {
     console.log("Audio play failed:", e);
   });
