@@ -42,10 +42,11 @@ function console_out(msg) {
 }
 
 function getUserColor(username) {
-  // Generate a consistent color for each username (same algorithm as browser)
+  // Generate a consistent color for each username (case-insensitive)
   var hash = 0;
-  for (var i = 0; i < username.length; i++) {
-    hash = username.charCodeAt(i) + ((hash << 5) - hash);
+  var lowerUsername = username.toLowerCase();
+  for (var i = 0; i < lowerUsername.length; i++) {
+    hash = lowerUsername.charCodeAt(i) + ((hash << 5) - hash);
   }
 
   var hue = 40 + (Math.abs(hash) % 320);
@@ -111,13 +112,24 @@ rl.on("line", function (line) {
     if (spaceIndex > 1) {
       var to = line.substring(1, spaceIndex);
       var message = line.substring(spaceIndex + 1);
+      // Find actual usernames (case-insensitive match)
+      var actualTo =
+        currentUserList.find(function (u) {
+          return u.toLowerCase() === to.toLowerCase();
+        }) || to;
+      var actualFrom =
+        currentUserList.find(function (u) {
+          return u.toLowerCase() === nick.toLowerCase();
+        }) || nick;
       socket.emit("send", {
         type: "tell",
         message: message,
-        to: to,
-        from: nick,
+        to: actualTo,
+        from: actualFrom,
       });
-      console_out(color("[" + nick + " -> " + to + "] " + message, "red"));
+      console_out(
+        color("[" + actualFrom + " -> " + actualTo + "] " + message, "red"),
+      );
     } else {
       console_out("Usage: @username message");
     }
@@ -180,7 +192,10 @@ socket.on("message", function (data) {
     console_out(leader + data.message);
   } else if (data.type == "notice") {
     console_out(color(data.message, "cyan"));
-  } else if (data.type == "tell" && data.to == nick) {
+  } else if (
+    data.type == "tell" &&
+    data.to.toLowerCase() == nick.toLowerCase()
+  ) {
     leader = color("[" + data.from + "->" + data.to + "]", "red");
     console_out(leader + data.message);
   } else if (data.type == "emote") {
