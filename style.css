@@ -109,6 +109,28 @@ body {
   white-space: pre-wrap;
 }
 
+.quote-block {
+  margin: 10px 0;
+  padding: 15px 20px;
+  border-left: 4px solid #4ec9b0;
+  background-color: #252526;
+  border-radius: 0 5px 5px 0;
+}
+
+.quote-text {
+  color: #ce9178;
+  font-size: 1.1em;
+  font-style: italic;
+  margin: 0 0 10px 0;
+  line-height: 1.6;
+}
+
+.quote-author {
+  color: #808080;
+  font-size: 0.95em;
+  display: block;
+}
+
 .userlist {
   color: #c586c0;
 }

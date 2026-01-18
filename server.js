@@ -47,6 +47,24 @@ var server = http.createServer(function (req, res) {
         res.end(data);
       }
     });
+  } else if (req.url === "/api/quote") {
+    // Proxy request to ZenQuotes API to avoid CORS
+    var https = require("https");
+    https
+      .get("https://zenquotes.io/api/random", function (apiRes) {
+        var data = "";
+        apiRes.on("data", function (chunk) {
+          data += chunk;
+        });
+        apiRes.on("end", function () {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(data);
+        });
+      })
+      .on("error", function (err) {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: "Failed to fetch quote" }));
+      });
   } else {
     res.writeHead(404);
     res.end("Not found");

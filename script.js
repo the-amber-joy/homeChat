@@ -423,6 +423,7 @@ function joinChat() {
     { name: "nick", args: "<name>", description: "Change your nickname" },
     { name: "me", args: "<action>", description: "Send an emote" },
     { name: "kick", args: "<user>", description: "Kick a user from chat" },
+    { name: "qotd", args: "", description: "Get a random quote" },
     { name: "who", args: "", description: "Show online users" },
     { name: "help", args: "", description: "Show help message" },
     { name: "exit", args: "", description: "Log out of chat" },
@@ -765,6 +766,9 @@ function chatCommand(cmd, arg) {
         socket.emit("kick", arg);
       }
       break;
+    case "qotd":
+      fetchQuoteOfTheDay();
+      break;
     default:
       addMessage("That is not a valid command.", "help");
   }
@@ -776,12 +780,58 @@ function showHelp() {
   addMessage("  /nick <name> - Change your nickname", "help");
   addMessage("  /me <action> - Send an emote", "help");
   addMessage("  /kick <user> - Kick a user from chat", "help");
+  addMessage("  /qotd - Get a random quote", "help");
   addMessage("  /who - Show online users", "help");
   addMessage("  /help - Show this help message", "help");
   addMessage("  /exit - Log out of chat", "help");
   addMessage("Text formatting:", "help");
   addMessage("  **bold**, *italic*, _underline_, ~strikethrough~", "help");
   addMessage("  Combine and nest styles in any order", "help");
+}
+
+function fetchQuoteOfTheDay() {
+  addMessage(nick + " requested a quote...", "notice");
+
+  fetch("/api/quote")
+    .then(function (response) {
+      if (!response.ok) {
+        throw new Error("Failed to fetch quote");
+      }
+      return response.json();
+    })
+    .then(function (data) {
+      // ZenQuotes returns an array with one quote object
+      var quote = data[0];
+      var quoteText = quote.q;
+      var author = quote.a;
+      addQuote(quoteText, author);
+    })
+    .catch(function (error) {
+      addMessage("Could not fetch quote: " + error.message, "help");
+    });
+}
+
+function addQuote(text, author) {
+  var container = document.getElementById("messages");
+  var messageDiv = document.createElement("div");
+  messageDiv.className = "message quote";
+
+  var quoteBlock = document.createElement("blockquote");
+  quoteBlock.className = "quote-block";
+
+  var quoteText = document.createElement("p");
+  quoteText.className = "quote-text";
+  quoteText.textContent = '"' + text + '"';
+
+  var quoteAuthor = document.createElement("cite");
+  quoteAuthor.className = "quote-author";
+  quoteAuthor.textContent = "— " + author;
+
+  quoteBlock.appendChild(quoteText);
+  quoteBlock.appendChild(quoteAuthor);
+  messageDiv.appendChild(quoteBlock);
+  container.appendChild(messageDiv);
+  container.scrollTop = container.scrollHeight;
 }
 
 function formatText(text) {
