@@ -213,6 +213,9 @@ document
 function connectToInstance(instance, isSwitching) {
   // Disconnect from current socket if connected
   if (socket) {
+    if (isSwitching) {
+      socket.emit("switching"); // Tell server to skip grace period
+    }
     socket.disconnect();
   }
 
@@ -286,8 +289,9 @@ function connectToInstance(instance, isSwitching) {
 
   socket = io(namespace, { auth: authOptions });
 
-  // Track if this is a switch (for suppressing join message)
-  var silentJoin = isSwitching || false;
+  // Track if this is a switch - only silent when switching TO After Dark
+  // Switching back to Home should announce the return
+  var silentJoin = isSwitching && instance === "afterdark";
   var hasRegistered = false;
 
   // Register on connect (and re-register on reconnect for idle tab disconnections)
@@ -316,8 +320,9 @@ function connectToInstance(instance, isSwitching) {
   });
 
   // Handle registration response - only announce join if not a quiet reconnect or switch
+  // For After Dark, server broadcasts the join message
   socket.on("registered", function (data) {
-    if (!data.quiet && !silentJoin) {
+    if (!data.quiet && !silentJoin && currentInstance !== "afterdark") {
       socket.emit("send", {
         type: "notice",
         message: nick + " has joined the chat",
@@ -333,12 +338,6 @@ function connectToInstance(instance, isSwitching) {
   // Listen for user list updates
   socket.on("userList", function (users) {
     updateUserList(users);
-    // If admin in After Dark, also update the afterDarkUserList for /revoke
-    if (isAfterDarkAdmin && currentInstance === "afterdark") {
-      afterDarkUserList = users.map(function (u) {
-        return u.nick;
-      });
-    }
   });
 
   // Listen for version updates
@@ -373,6 +372,9 @@ function connectToInstance(instance, isSwitching) {
     hasAfterDarkAccess = false;
     isAfterDarkAdmin = false;
     wasRevoked = true;
+    // Clear After Dark data from localStorage
+    localStorage.removeItem("chatHistory_afterdark");
+    localStorage.removeItem("chatNickname_afterdark");
     connectToInstance("home", true);
   });
 
@@ -900,22 +902,16 @@ function joinChat() {
           );
         }
       } else if (selectedCmd.name === "invite") {
-        // Invite command shows user selection from Home Chat
+        // Invite command shows user selection from Home Chat (server filters out authorized users)
         messageInput.value = "/" + selectedCmd.name + " ";
         messageInput.selectionStart = messageInput.selectionEnd =
           selectedCmd.name.length + 2;
         messageInput.focus();
-        // Request fresh Home user list
+        // Request fresh Home user list (server excludes already-authorized users)
         socket.emit("getHomeUsers");
-        // Show users from Home Chat (excluding self and users already in After Dark)
-        var afterDarkLower = afterDarkUserList.map(function (u) {
-          return u.toLowerCase();
-        });
+        // Show users from Home Chat (excluding self)
         var invitableUsers = homeUserList.filter(function (user) {
-          return (
-            user.toLowerCase() !== nick.toLowerCase() &&
-            afterDarkLower.indexOf(user.toLowerCase()) === -1
-          );
+          return user.toLowerCase() !== nick.toLowerCase();
         });
         if (invitableUsers.length > 0) {
           showUserAutocomplete(
@@ -925,14 +921,14 @@ function joinChat() {
           );
         }
       } else if (selectedCmd.name === "revoke") {
-        // Revoke command shows user selection from After Dark
+        // Revoke command shows ALL authorized users (server returns full authorized list)
         messageInput.value = "/" + selectedCmd.name + " ";
         messageInput.selectionStart = messageInput.selectionEnd =
           selectedCmd.name.length + 2;
         messageInput.focus();
-        // Request fresh After Dark user list
+        // Request fresh authorized user list
         socket.emit("getAfterDarkUsers");
-        // Show users from After Dark (excluding self)
+        // Show all authorized users (excluding self)
         var revokableUsers = afterDarkUserList.filter(function (user) {
           return user.toLowerCase() !== nick.toLowerCase();
         });

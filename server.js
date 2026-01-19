@@ -206,6 +206,13 @@ function setupNamespace(namespace, users, pendingDisconnects, instanceName) {
         namespace.emit("userList", getUserList(users));
         // Tell client to announce join
         socket.emit("registered", { quiet: false });
+        // For After Dark, broadcast join message from server
+        if (instanceName === "AfterDark") {
+          namespace.emit("message", {
+            type: "notice",
+            message: nickname + " has joined After Dark",
+          });
+        }
       }
     });
 
@@ -269,6 +276,14 @@ function setupNamespace(namespace, users, pendingDisconnects, instanceName) {
       }
     });
 
+    // Handle switching instances (skip grace period but still announce disconnect)
+    socket.on("switching", function () {
+      var found = findUserBySocketId(users, socket.id);
+      if (found) {
+        pendingDisconnects[found.lowerNick] = "switching";
+      }
+    });
+
     // Handle disconnection
     socket.on("disconnect", function () {
       var found = findUserBySocketId(users, socket.id);
@@ -285,6 +300,15 @@ function setupNamespace(namespace, users, pendingDisconnects, instanceName) {
           delete users[lowerNick];
           delete pendingDisconnects[lowerNick];
           namespace.emit("userList", getUserList(users));
+        } else if (pendingDisconnects[lowerNick] === "switching") {
+          // Switching instances - remove immediately and announce disconnect
+          delete users[lowerNick];
+          delete pendingDisconnects[lowerNick];
+          namespace.emit("userList", getUserList(users));
+          namespace.emit("message", {
+            type: "notice",
+            message: nick + " has disconnected",
+          });
         } else {
           // Mark user as idle and start grace period
           users[lowerNick].idle = true;
@@ -346,6 +370,14 @@ setupNamespace(
 afterDarkNamespace.on("connection", function (socket) {
   // Notify client of their admin status
   socket.emit("afterDarkAccess", true, socket.isAdmin);
+
+  // Add device to authorized list if not already there
+  // This ensures anyone who successfully connects (admin or invited) stays authorized
+  var deviceId = socket.handshake.auth.deviceId;
+  if (deviceId && authorizedDevices.indexOf(deviceId) === -1) {
+    authorizedDevices.push(deviceId);
+    saveAuthorizedDevices(authorizedDevices);
+  }
 
   socket.on("invite", function (targetNick) {
     if (!socket.isAdmin) {
@@ -448,17 +480,60 @@ afterDarkNamespace.on("connection", function (socket) {
     }
   });
 
-  // Handler to get Home Chat users (for /invite autocomplete)
+  // Handler to get Home Chat users who are NOT authorized for After Dark (for /invite autocomplete)
   socket.on("getHomeUsers", function () {
     if (socket.isAdmin) {
-      socket.emit("homeUserList", getUserList(homeUsers));
+      // Filter out users who are already authorized
+      var invitableUsers = [];
+      for (var lowerNick in homeUsers) {
+        var user = homeUsers[lowerNick];
+        if (user.deviceId && authorizedDevices.indexOf(user.deviceId) === -1) {
+          invitableUsers.push({
+            nick: user.nick,
+            idle: user.idle || false,
+          });
+        }
+      }
+      socket.emit("homeUserList", invitableUsers);
     }
   });
 
-  // Handler to get After Dark users (for /revoke autocomplete)
+  // Handler to get ALL authorized After Dark users (for /revoke autocomplete)
   socket.on("getAfterDarkUsers", function () {
     if (socket.isAdmin) {
-      socket.emit("afterDarkUserList", getUserList(afterDarkUsers));
+      // Build list of all authorized users by checking both home and afterdark users
+      var authorizedUsers = [];
+      var addedDevices = {};
+
+      // Check After Dark users (currently connected)
+      for (var lowerNick in afterDarkUsers) {
+        var user = afterDarkUsers[lowerNick];
+        if (user.deviceId && authorizedDevices.indexOf(user.deviceId) !== -1) {
+          authorizedUsers.push({
+            nick: user.nick,
+            idle: user.idle || false,
+          });
+          addedDevices[user.deviceId] = true;
+        }
+      }
+
+      // Check Home users who are authorized but not currently in After Dark
+      for (var lowerNick in homeUsers) {
+        var user = homeUsers[lowerNick];
+        if (
+          user.deviceId &&
+          authorizedDevices.indexOf(user.deviceId) !== -1 &&
+          !addedDevices[user.deviceId]
+        ) {
+          authorizedUsers.push({
+            nick: user.nick,
+            idle: user.idle || false,
+          });
+          addedDevices[user.deviceId] = true;
+        }
+      }
+
+      socket.emit("afterDarkUserList", authorizedUsers);
     }
   });
 });

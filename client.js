@@ -48,12 +48,18 @@ function getPrompt() {
 }
 
 // Connect to a specific instance
-function connectToInstance(instance, silent) {
+function connectToInstance(instance, isSwitching) {
   if (socket) {
+    if (isSwitching) {
+      socket.emit("switching"); // Tell server to skip grace period
+    }
     socket.disconnect();
   }
 
   currentInstance = instance;
+
+  // Only silent when switching TO After Dark - returning to Home should announce
+  var silent = isSwitching && instance === "afterdark";
 
   var namespace = instance === "afterdark" ? "/afterdark" : "/";
   var authOptions = {};
@@ -105,7 +111,8 @@ function setupSocketHandlers(silent) {
   });
 
   socket.on("registered", function (data) {
-    if (!data.quiet && !silent) {
+    // For After Dark, server broadcasts the join message
+    if (!data.quiet && !silent && currentInstance !== "afterdark") {
       socket.emit("send", {
         type: "notice",
         message: nick + " has joined the chat",
