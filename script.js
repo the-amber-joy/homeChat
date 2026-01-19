@@ -907,9 +907,15 @@ function joinChat() {
         messageInput.focus();
         // Request fresh Home user list
         socket.emit("getHomeUsers");
-        // Show users from Home Chat (excluding already authorized)
+        // Show users from Home Chat (excluding self and users already in After Dark)
+        var afterDarkLower = afterDarkUserList.map(function (u) {
+          return u.toLowerCase();
+        });
         var invitableUsers = homeUserList.filter(function (user) {
-          return user.toLowerCase() !== nick.toLowerCase();
+          return (
+            user.toLowerCase() !== nick.toLowerCase() &&
+            afterDarkLower.indexOf(user.toLowerCase()) === -1
+          );
         });
         if (invitableUsers.length > 0) {
           showUserAutocomplete(
