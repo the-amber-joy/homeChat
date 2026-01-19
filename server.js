@@ -393,6 +393,74 @@ afterDarkNamespace.on("connection", function (socket) {
       });
     }
   });
+
+  // Handle revoking After Dark access
+  socket.on("revoke", function (targetNick) {
+    if (!socket.isAdmin) {
+      socket.emit("message", {
+        type: "help",
+        message: "Only admins can revoke access.",
+      });
+      return;
+    }
+
+    var lowerTargetNick = targetNick.toLowerCase();
+
+    // Find the target user in Home Chat or After Dark to get their device ID
+    var targetUser =
+      homeUsers[lowerTargetNick] || afterDarkUsers[lowerTargetNick];
+
+    if (targetUser && targetUser.deviceId) {
+      var deviceIndex = authorizedDevices.indexOf(targetUser.deviceId);
+      if (deviceIndex !== -1) {
+        authorizedDevices.splice(deviceIndex, 1);
+        saveAuthorizedDevices(authorizedDevices);
+        socket.emit("message", {
+          type: "notice",
+          message: "Revoked After Dark access for " + targetUser.nick + ".",
+        });
+        // Notify the user in Home Chat that they lost access
+        if (homeUsers[lowerTargetNick] && homeUsers[lowerTargetNick].socketId) {
+          homeNamespace
+            .to(homeUsers[lowerTargetNick].socketId)
+            .emit("afterDarkAccess", false);
+        }
+        // Move them back to Home Chat if they're in After Dark
+        if (
+          afterDarkUsers[lowerTargetNick] &&
+          afterDarkUsers[lowerTargetNick].socketId
+        ) {
+          afterDarkNamespace
+            .to(afterDarkUsers[lowerTargetNick].socketId)
+            .emit("revoked");
+        }
+      } else {
+        socket.emit("message", {
+          type: "help",
+          message: "User is not authorized for After Dark.",
+        });
+      }
+    } else {
+      socket.emit("message", {
+        type: "help",
+        message: "User '" + targetNick + "' not found or has no device ID.",
+      });
+    }
+  });
+
+  // Handler to get Home Chat users (for /invite autocomplete)
+  socket.on("getHomeUsers", function () {
+    if (socket.isAdmin) {
+      socket.emit("homeUserList", getUserList(homeUsers));
+    }
+  });
+
+  // Handler to get After Dark users (for /revoke autocomplete)
+  socket.on("getAfterDarkUsers", function () {
+    if (socket.isAdmin) {
+      socket.emit("afterDarkUserList", getUserList(afterDarkUsers));
+    }
+  });
 });
 
 // Add endpoint to check After Dark access

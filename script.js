@@ -3,7 +3,10 @@ var nick;
 var userListVisible = false;
 var settingsVisible = false;
 var currentUserList = [];
+var homeUserList = []; // For /invite autocomplete (users in Home Chat)
+var afterDarkUserList = []; // For /revoke autocomplete (users in After Dark)
 var clientVersion = localStorage.getItem("appVersion") || null;
+var wasRevoked = false; // Flag to show revoked message after switching to Home
 var userColorCache = {}; // Cache colors by username to persist across nick changes
 
 // Device ID for persistent identification (used for After Dark authorization)
@@ -335,6 +338,12 @@ function connectToInstance(instance, isSwitching) {
   // Listen for user list updates
   socket.on("userList", function (users) {
     updateUserList(users);
+    // If admin in After Dark, also update the afterDarkUserList for /revoke
+    if (isAfterDarkAdmin && currentInstance === "afterdark") {
+      afterDarkUserList = users.map(function (u) {
+        return u.nick;
+      });
+    }
   });
 
   // Listen for version updates
@@ -364,6 +373,14 @@ function connectToInstance(instance, isSwitching) {
     }, 2000);
   });
 
+  // Handle After Dark access being revoked - move back to Home Chat
+  socket.on("revoked", function () {
+    hasAfterDarkAccess = false;
+    isAfterDarkAdmin = false;
+    wasRevoked = true;
+    connectToInstance("home", true);
+  });
+
   // Handle After Dark access notification (when invited)
   socket.on("afterDarkAccess", function (access, admin) {
     var wasAlreadyAuthorized = hasAfterDarkAccess;
@@ -378,6 +395,26 @@ function connectToInstance(instance, isSwitching) {
       addMessage("   Click the moon icon or type /dark to join...", "help");
       addMessage("", "help");
     }
+
+    // Request cross-instance user lists for admin autocomplete
+    if (admin && instance === "afterdark") {
+      socket.emit("getHomeUsers");
+      socket.emit("getAfterDarkUsers");
+    }
+  });
+
+  // Receive Home Chat user list (for /invite autocomplete)
+  socket.on("homeUserList", function (users) {
+    homeUserList = users.map(function (u) {
+      return u.nick;
+    });
+  });
+
+  // Receive After Dark user list (for /revoke autocomplete)
+  socket.on("afterDarkUserList", function (users) {
+    afterDarkUserList = users.map(function (u) {
+      return u.nick;
+    });
   });
 
   // Check After Dark access on home connection
@@ -400,6 +437,14 @@ function connectToInstance(instance, isSwitching) {
     } else {
       addMessage("Welcome to Home Chat!", "help");
     }
+  }
+
+  // Show revoked message if returning from After Dark after being revoked
+  if (wasRevoked && instance === "home") {
+    wasRevoked = false;
+    addMessage("", "help");
+    addMessage("Your After Dark access has been revoked.", "notice");
+    addMessage("", "help");
   }
 }
 
@@ -597,15 +642,50 @@ function joinChat() {
   var autocompleteType = null; // "user", "user-arg", or "command"
 
   // Available commands with descriptions
-  var commands = [
-    { name: "nick", args: "<name>", description: "Change your nickname" },
-    { name: "me", args: "<action>", description: "Send an emote" },
-    { name: "kick", args: "<user>", description: "Kick a user from chat" },
-    { name: "qotd", args: "", description: "Get a random quote" },
-    { name: "who", args: "", description: "Show online users" },
-    { name: "help", args: "", description: "Show help message" },
-    { name: "exit", args: "", description: "Log out of chat" },
-  ];
+  function getAvailableCommands() {
+    var cmds = [
+      { name: "nick", args: "<name>", description: "Change your nickname" },
+      { name: "me", args: "<action>", description: "Send an emote" },
+      { name: "kick", args: "<user>", description: "Kick a user from chat" },
+      { name: "qotd", args: "", description: "Get a random quote" },
+      { name: "who", args: "", description: "Show online users" },
+      { name: "help", args: "", description: "Show help message" },
+      { name: "exit", args: "", description: "Log out of chat" },
+    ];
+
+    // Add After Dark commands for admins
+    if (isAfterDarkAdmin && currentInstance === "afterdark") {
+      cmds.push({
+        name: "invite",
+        args: "<user>",
+        description: "Invite user to After Dark",
+      });
+      cmds.push({
+        name: "revoke",
+        args: "<user>",
+        description: "Revoke user's After Dark access",
+      });
+    }
+
+    // Add instance switching commands
+    if (hasAfterDarkAccess) {
+      if (currentInstance === "home") {
+        cmds.push({
+          name: "dark",
+          args: "",
+          description: "Switch to After Dark",
+        });
+      } else {
+        cmds.push({
+          name: "home",
+          args: "",
+          description: "Switch to Home Chat",
+        });
+      }
+    }
+
+    return cmds;
+  }
 
   messageInput.addEventListener("input", function (e) {
     var value = messageInput.value;
@@ -617,7 +697,7 @@ function joinChat() {
 
       // Only show command autocomplete if no space yet (still typing command)
       if (searchText.indexOf(" ") === -1) {
-        var filtered = commands.filter(function (cmd) {
+        var filtered = getAvailableCommands().filter(function (cmd) {
           return cmd.name.toLowerCase().startsWith(searchText);
         });
 
@@ -808,7 +888,7 @@ function joinChat() {
         messageInput.value = "/" + selectedCmd.name;
         sendMessage();
       } else if (selectedCmd.name === "kick") {
-        // Kick command shows user selection
+        // Kick command shows user selection from current instance
         messageInput.value = "/" + selectedCmd.name + " ";
         messageInput.selectionStart = messageInput.selectionEnd =
           selectedCmd.name.length + 2;
@@ -820,6 +900,44 @@ function joinChat() {
         if (kickableUsers.length > 0) {
           showUserAutocomplete(
             kickableUsers,
+            selectedCmd.name.length + 2,
+            true,
+          );
+        }
+      } else if (selectedCmd.name === "invite") {
+        // Invite command shows user selection from Home Chat
+        messageInput.value = "/" + selectedCmd.name + " ";
+        messageInput.selectionStart = messageInput.selectionEnd =
+          selectedCmd.name.length + 2;
+        messageInput.focus();
+        // Request fresh Home user list
+        socket.emit("getHomeUsers");
+        // Show users from Home Chat (excluding already authorized)
+        var invitableUsers = homeUserList.filter(function (user) {
+          return user.toLowerCase() !== nick.toLowerCase();
+        });
+        if (invitableUsers.length > 0) {
+          showUserAutocomplete(
+            invitableUsers,
+            selectedCmd.name.length + 2,
+            true,
+          );
+        }
+      } else if (selectedCmd.name === "revoke") {
+        // Revoke command shows user selection from After Dark
+        messageInput.value = "/" + selectedCmd.name + " ";
+        messageInput.selectionStart = messageInput.selectionEnd =
+          selectedCmd.name.length + 2;
+        messageInput.focus();
+        // Request fresh After Dark user list
+        socket.emit("getAfterDarkUsers");
+        // Show users from After Dark (excluding self)
+        var revokableUsers = afterDarkUserList.filter(function (user) {
+          return user.toLowerCase() !== nick.toLowerCase();
+        });
+        if (revokableUsers.length > 0) {
+          showUserAutocomplete(
+            revokableUsers,
             selectedCmd.name.length + 2,
             true,
           );
@@ -932,7 +1050,9 @@ function chatCommand(cmd, arg) {
       socket.emit("send", { type: "notice", message: notice });
       socket.emit("exit"); // Tell server this is intentional
       addMessage("Goodbye!", "help");
-      localStorage.removeItem("chatNickname_" + currentInstance);
+      // Clear nicknames for both instances
+      localStorage.removeItem("chatNickname_home");
+      localStorage.removeItem("chatNickname_afterdark");
       socket.disconnect();
       setTimeout(function () {
         location.reload();
@@ -982,6 +1102,15 @@ function chatCommand(cmd, arg) {
         socket.emit("invite", arg);
       }
       break;
+    case "revoke":
+      if (!isAfterDarkAdmin) {
+        addMessage("That is not a valid command.", "help");
+      } else if (!arg) {
+        addMessage("Usage: /revoke <username>", "help");
+      } else {
+        socket.emit("revoke", arg);
+      }
+      break;
     default:
       addMessage("That is not a valid command.", "help");
   }
@@ -1006,6 +1135,7 @@ function showHelp() {
   }
   if (isAfterDarkAdmin && currentInstance === "afterdark") {
     addMessage("  /invite <user> - Invite user to After Dark", "help");
+    addMessage("  /revoke <user> - Revoke user's After Dark access", "help");
   }
   addMessage("Text formatting:", "help");
   addMessage("  **bold**, *italic*, _underline_, ~strikethrough~", "help");

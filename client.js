@@ -16,6 +16,7 @@ var isAfterDarkAdmin = false;
 var afterDarkAdminPassword = null;
 var homeNick = null;
 var afterDarkNick = null;
+var wasRevoked = false;
 
 // Device ID for After Dark authorization
 var deviceIdFile = path.join(
@@ -81,6 +82,14 @@ function setupSocketHandlers(silent) {
       deviceId: deviceId,
       silent: silent,
     });
+
+    // Show revoked message if returning from After Dark after being revoked
+    if (wasRevoked && currentInstance === "home") {
+      wasRevoked = false;
+      console_out(color("", "red"));
+      console_out(color("Your After Dark access has been revoked.", "red"));
+      console_out(color("", "red"));
+    }
   });
 
   socket.on("connect_error", function (err) {
@@ -126,6 +135,15 @@ function setupSocketHandlers(silent) {
       console_out(color("   Type /dark to join...", "red"));
       console_out(color("", "red"));
     }
+  });
+
+  // Handle After Dark access being revoked - move back to Home Chat
+  socket.on("revoked", function () {
+    hasAfterDarkAccess = false;
+    isAfterDarkAdmin = false;
+    wasRevoked = true;
+    nick = homeNick || nick;
+    connectToInstance("home", true);
   });
 
   socket.on("message", function (data) {
@@ -521,6 +539,9 @@ function show_help() {
   }
   if (isAfterDarkAdmin && currentInstance === "afterdark") {
     console_out(color("  /invite <user> - Invite user to After Dark", "red"));
+    console_out(
+      color("  /revoke <user> - Revoke user's After Dark access", "red"),
+    );
   }
 }
 
@@ -694,6 +715,15 @@ function chat_command(cmd, arg) {
         console_out("Usage: /invite <username>");
       } else {
         socket.emit("invite", arg);
+      }
+      break;
+    case "revoke":
+      if (!isAfterDarkAdmin) {
+        console_out("That is not a valid command.");
+      } else if (!arg) {
+        console_out("Usage: /revoke <username>");
+      } else {
+        socket.emit("revoke", arg);
       }
       break;
     default:
