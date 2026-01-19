@@ -6,14 +6,17 @@ var path = require("path");
 // After Dark admin password from environment variable
 var AFTERDARK_ADMIN_PASSWORD = process.env.AFTERDARK_ADMIN_PASSWORD || null;
 
-// Authorized devices file path
-var AUTHORIZED_DEVICES_FILE = path.join(__dirname, "authorized-devices.json");
+// After Dark access list file path
+var AD_ACCESS_LIST_FILE = path.join(__dirname, "ad-access-list.json");
+
+// Device registry file path - tracks nicknames across instances
+var DEVICE_REGISTRY_FILE = path.join(__dirname, "device-registry.json");
 
 // Load authorized devices from file
 function loadAuthorizedDevices() {
   try {
-    if (fs.existsSync(AUTHORIZED_DEVICES_FILE)) {
-      var data = fs.readFileSync(AUTHORIZED_DEVICES_FILE, "utf8");
+    if (fs.existsSync(AD_ACCESS_LIST_FILE)) {
+      var data = fs.readFileSync(AD_ACCESS_LIST_FILE, "utf8");
       return JSON.parse(data);
     }
   } catch (err) {
@@ -25,14 +28,39 @@ function loadAuthorizedDevices() {
 // Save authorized devices to file
 function saveAuthorizedDevices(devices) {
   try {
-    fs.writeFileSync(AUTHORIZED_DEVICES_FILE, JSON.stringify(devices, null, 2));
+    fs.writeFileSync(AD_ACCESS_LIST_FILE, JSON.stringify(devices, null, 2));
   } catch (err) {
     console.error("Error saving authorized devices:", err);
   }
 }
 
+// Load device registry from file
+function loadDeviceRegistry() {
+  try {
+    if (fs.existsSync(DEVICE_REGISTRY_FILE)) {
+      var data = fs.readFileSync(DEVICE_REGISTRY_FILE, "utf8");
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error("Error loading device registry:", err);
+  }
+  return {};
+}
+
+// Save device registry to file
+function saveDeviceRegistry(registry) {
+  try {
+    fs.writeFileSync(DEVICE_REGISTRY_FILE, JSON.stringify(registry, null, 2));
+  } catch (err) {
+    console.error("Error saving device registry:", err);
+  }
+}
+
 // Authorized device IDs for After Dark access
 var authorizedDevices = loadAuthorizedDevices();
+
+// Device registry: { deviceId: { homeNick, afterDarkNick } }
+var deviceRegistry = loadDeviceRegistry();
 
 // Create HTTP server and Socket.IO instance
 var server = http.createServer(function (req, res) {
@@ -214,6 +242,19 @@ function setupNamespace(namespace, users, pendingDisconnects, instanceName) {
           });
         }
       }
+
+      // Update device registry with current nickname
+      if (deviceId) {
+        if (!deviceRegistry[deviceId]) {
+          deviceRegistry[deviceId] = {};
+        }
+        if (instanceName === "Home") {
+          deviceRegistry[deviceId].homeNick = nickname;
+        } else if (instanceName === "AfterDark") {
+          deviceRegistry[deviceId].afterDarkNick = nickname;
+        }
+        saveDeviceRegistry(deviceRegistry);
+      }
     });
 
     // Handle nickname changes
@@ -232,6 +273,16 @@ function setupNamespace(namespace, users, pendingDisconnects, instanceName) {
           deviceId: deviceId,
         };
         namespace.emit("userList", getUserList(users));
+
+        // Update device registry with new nickname
+        if (deviceId && deviceRegistry[deviceId]) {
+          if (instanceName === "Home") {
+            deviceRegistry[deviceId].homeNick = newNick;
+          } else if (instanceName === "AfterDark") {
+            deviceRegistry[deviceId].afterDarkNick = newNick;
+          }
+          saveDeviceRegistry(deviceRegistry);
+        }
       }
     });
 
@@ -455,18 +506,43 @@ afterDarkNamespace.on("connection", function (socket) {
       }
     }
 
-    // Find the target user in Home Chat or After Dark to get their device ID
+    // Find the target user - check online users first, then device registry
     var targetUser =
       homeUsers[lowerTargetNick] || afterDarkUsers[lowerTargetNick];
+    var targetDeviceId = null;
+    var displayNick = targetNick;
 
     if (targetUser && targetUser.deviceId) {
-      var deviceIndex = authorizedDevices.indexOf(targetUser.deviceId);
+      targetDeviceId = targetUser.deviceId;
+      displayNick = targetUser.nick;
+    } else {
+      // Look up in device registry by nickname (check both homeNick and afterDarkNick)
+      for (var deviceId in deviceRegistry) {
+        var entry = deviceRegistry[deviceId];
+        if (
+          (entry.homeNick &&
+            entry.homeNick.toLowerCase() === lowerTargetNick) ||
+          (entry.afterDarkNick &&
+            entry.afterDarkNick.toLowerCase() === lowerTargetNick)
+        ) {
+          // Verify this device is actually authorized
+          if (authorizedDevices.indexOf(deviceId) !== -1) {
+            targetDeviceId = deviceId;
+            displayNick = entry.afterDarkNick || entry.homeNick || targetNick;
+            break;
+          }
+        }
+      }
+    }
+
+    if (targetDeviceId) {
+      var deviceIndex = authorizedDevices.indexOf(targetDeviceId);
       if (deviceIndex !== -1) {
         authorizedDevices.splice(deviceIndex, 1);
         saveAuthorizedDevices(authorizedDevices);
         socket.emit("message", {
           type: "notice",
-          message: "Revoked After Dark access for " + targetUser.nick + ".",
+          message: "Revoked After Dark access for " + displayNick + ".",
         });
         // Notify the user in Home Chat that they lost access
         if (homeUsers[lowerTargetNick] && homeUsers[lowerTargetNick].socketId) {
@@ -518,17 +594,18 @@ afterDarkNamespace.on("connection", function (socket) {
   // Handler to get ALL authorized After Dark users (for /revoke autocomplete)
   socket.on("getAfterDarkUsers", function () {
     if (socket.isAdmin) {
-      // Build list of all authorized users by checking both home and afterdark users
+      // Build list of all authorized users using device registry
       var authorizedUsers = [];
       var addedDevices = {};
 
-      // Check After Dark users (currently connected)
+      // Check After Dark users (currently connected) - use their live nick
       for (var lowerNick in afterDarkUsers) {
         var user = afterDarkUsers[lowerNick];
         if (user.deviceId && authorizedDevices.indexOf(user.deviceId) !== -1) {
           authorizedUsers.push({
             nick: user.nick,
             idle: user.idle || false,
+            online: true,
           });
           addedDevices[user.deviceId] = true;
         }
@@ -542,11 +619,38 @@ afterDarkNamespace.on("connection", function (socket) {
           authorizedDevices.indexOf(user.deviceId) !== -1 &&
           !addedDevices[user.deviceId]
         ) {
+          // Use their After Dark nick from registry if available, otherwise Home nick
+          var displayNick = user.nick;
+          if (
+            deviceRegistry[user.deviceId] &&
+            deviceRegistry[user.deviceId].afterDarkNick
+          ) {
+            displayNick = deviceRegistry[user.deviceId].afterDarkNick;
+          }
           authorizedUsers.push({
-            nick: user.nick,
+            nick: displayNick,
             idle: user.idle || false,
+            online: true,
+            inHome: true,
           });
           addedDevices[user.deviceId] = true;
+        }
+      }
+
+      // Check device registry for offline authorized users
+      for (var i = 0; i < authorizedDevices.length; i++) {
+        var deviceId = authorizedDevices[i];
+        if (!addedDevices[deviceId] && deviceRegistry[deviceId]) {
+          var regEntry = deviceRegistry[deviceId];
+          // Prefer After Dark nick, fall back to Home nick
+          var displayNick =
+            regEntry.afterDarkNick || regEntry.homeNick || "Unknown";
+          authorizedUsers.push({
+            nick: displayNick,
+            idle: false,
+            online: false,
+          });
+          addedDevices[deviceId] = true;
         }
       }
 

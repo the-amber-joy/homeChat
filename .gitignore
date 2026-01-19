@@ -9,8 +9,9 @@ yarn-error.log*
 .env.local
 .env.*.local
 
-# After Dark authorized devices (contains device IDs)
-authorized-devices.json
+# After Dark data files
+ad-access-list.json
+device-registry.json
 
 # Logs
 logs
