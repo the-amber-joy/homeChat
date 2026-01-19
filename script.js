@@ -288,22 +288,17 @@ function connectToInstance(instance, isSwitching) {
 
   // Track if this is a switch (for suppressing join message)
   var silentJoin = isSwitching || false;
+  var hasRegistered = false;
 
-  // Register user with server
-  socket.emit("register", {
-    nickname: nick,
-    deviceId: deviceId,
-    silent: silentJoin,
-  });
-
-  // Re-register on reconnect (handles idle tab disconnections)
+  // Register on connect (and re-register on reconnect for idle tab disconnections)
   socket.on("connect", function () {
     if (nick) {
       socket.emit("register", {
         nickname: nick,
         deviceId: deviceId,
-        silent: true,
+        silent: hasRegistered ? true : silentJoin,
       });
+      hasRegistered = true;
     }
   });
 
