@@ -148,6 +148,15 @@ var afterDarkPendingDisconnects = {};
 
 var DISCONNECT_GRACE_PERIOD = 5000; // 5 seconds
 
+// Rate limiting configuration
+var RATE_LIMIT_MESSAGES = 5; // Max messages
+var RATE_LIMIT_WINDOW = 10000; // Per 10 seconds
+var MUTE_DURATION_1 = 60000; // 1 minute for first offense
+var MUTE_DURATION_2 = 300000; // 5 minutes for repeat offense
+var messageTimestamps = {}; // { visitorId: [timestamp1, timestamp2, ...] }
+var spamStrikes = {}; // { deviceId: count } - how many times they've hit rate limit (persists across reconnects)
+var mutedUntil = {}; // { deviceId: timestamp } - when mute expires (persists across reconnects)
+
 // Helper to build user list for clients
 function getUserList(users) {
   var list = [];
@@ -288,6 +297,83 @@ function setupNamespace(namespace, users, pendingDisconnects, instanceName) {
 
     // Broadcast a user's message to everyone else in the room
     socket.on("send", function (data) {
+      var visitorId = socket.id;
+      var now = Date.now();
+
+      // Get deviceId for persistent mute tracking
+      var found = findUserBySocketId(users, socket.id);
+      var deviceId = found ? found.user.deviceId : null;
+
+      // Check if user is muted (by deviceId for persistence)
+      if (deviceId && mutedUntil[deviceId] && now < mutedUntil[deviceId]) {
+        var remainingSecs = Math.ceil((mutedUntil[deviceId] - now) / 1000);
+        socket.emit("message", {
+          type: "help",
+          message:
+            "You are muted for " + remainingSecs + " more seconds due to spam.",
+        });
+        return;
+      }
+
+      // Clear mute if expired
+      if (deviceId && mutedUntil[deviceId] && now >= mutedUntil[deviceId]) {
+        delete mutedUntil[deviceId];
+      }
+
+      // Initialize or clean up old timestamps (per socket for rate limiting)
+      if (!messageTimestamps[visitorId]) {
+        messageTimestamps[visitorId] = [];
+      }
+      messageTimestamps[visitorId] = messageTimestamps[visitorId].filter(
+        function (ts) {
+          return now - ts < RATE_LIMIT_WINDOW;
+        },
+      );
+
+      // Check if over limit
+      if (messageTimestamps[visitorId].length >= RATE_LIMIT_MESSAGES) {
+        // Use deviceId for strikes/mutes so they persist across reconnects
+        var strikeKey = deviceId || visitorId;
+
+        // Initialize spam strikes
+        if (!spamStrikes[strikeKey]) {
+          spamStrikes[strikeKey] = 0;
+        }
+        spamStrikes[strikeKey]++;
+
+        // Progressive punishment
+        if (spamStrikes[strikeKey] >= 10) {
+          // 10+ strikes: 5 minute mute
+          mutedUntil[strikeKey] = now + MUTE_DURATION_2;
+          spamStrikes[strikeKey] = 5; // Reset to 5 so next offense is also 5 min
+          socket.emit("message", {
+            type: "help",
+            message: "You have been muted for 5 minutes due to repeated spam.",
+          });
+        } else if (spamStrikes[strikeKey] >= 5) {
+          // 5-9 strikes: 1 minute mute
+          mutedUntil[strikeKey] = now + MUTE_DURATION_1;
+          socket.emit("message", {
+            type: "help",
+            message:
+              "You have been muted for 1 minute due to spam. Continued spam will result in a 5 minute mute.",
+          });
+        } else {
+          // 1-4 strikes: just warn
+          var strikesLeft = 5 - spamStrikes[strikeKey];
+          socket.emit("message", {
+            type: "help",
+            message:
+              "Slow down! You're sending messages too fast. " +
+              strikesLeft +
+              " more and you'll be muted for 1 minute.",
+          });
+        }
+        return;
+      }
+
+      // Record this message and broadcast
+      messageTimestamps[visitorId].push(now);
       namespace.emit("message", data);
     });
 
@@ -337,6 +423,9 @@ function setupNamespace(namespace, users, pendingDisconnects, instanceName) {
 
     // Handle disconnection
     socket.on("disconnect", function () {
+      // Clean up per-socket rate limit tracking (spamStrikes/mutedUntil persist by deviceId)
+      delete messageTimestamps[socket.id];
+
       var found = findUserBySocketId(users, socket.id);
       if (found) {
         var nick = found.user.nick;
