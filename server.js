@@ -438,6 +438,23 @@ afterDarkNamespace.on("connection", function (socket) {
 
     var lowerTargetNick = targetNick.toLowerCase();
 
+    // Check if target user is also an admin (connected to After Dark with admin status)
+    if (
+      afterDarkUsers[lowerTargetNick] &&
+      afterDarkUsers[lowerTargetNick].socketId
+    ) {
+      var targetSocket = afterDarkNamespace.sockets.get(
+        afterDarkUsers[lowerTargetNick].socketId,
+      );
+      if (targetSocket && targetSocket.isAdmin) {
+        socket.emit("message", {
+          type: "help",
+          message: "Cannot revoke access for another admin.",
+        });
+        return;
+      }
+    }
+
     // Find the target user in Home Chat or After Dark to get their device ID
     var targetUser =
       homeUsers[lowerTargetNick] || afterDarkUsers[lowerTargetNick];

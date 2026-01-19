@@ -1106,6 +1106,10 @@ function chatCommand(cmd, arg) {
         addMessage("Usage: /revoke <username>", "help");
       } else {
         socket.emit("revoke", arg);
+        // Remove from local list so they don't show in autocomplete anymore
+        afterDarkUserList = afterDarkUserList.filter(function (user) {
+          return user.toLowerCase() !== arg.toLowerCase();
+        });
       }
       break;
     default:
@@ -1375,6 +1379,8 @@ function handleMessage(data) {
     }
   } else if (data.type === "quote") {
     addQuote(data.text, data.author);
+  } else if (data.type === "help") {
+    addMessage(data.message, "help");
   }
 }
 
