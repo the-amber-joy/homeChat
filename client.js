@@ -700,6 +700,7 @@ function chat_command(cmd, arg) {
     case "exit":
       var notice = nick + " has left the chat";
       socket.emit("send", { type: "notice", message: notice });
+      socket.emit("exit"); // Tell server this is intentional
       console_out(color("Goodbye!", "yellow"));
       socket.disconnect();
       process.exit(0);

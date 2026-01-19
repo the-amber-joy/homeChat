@@ -1386,11 +1386,10 @@ function handleMessage(data) {
     data.type === "tell" &&
     data.to.toLowerCase() === nick.toLowerCase()
   ) {
-    addMessage(
-      "[" + data.from + " -> " + data.to + "] " + data.message,
-      "tell",
-    );
-    // Check for private message notification
+    // Tell messages from terminal users are also sent as 'dm' events
+    // So we can ignore them here to avoid duplicate display
+    // The DM panel will handle display via the 'dm' event
+    // But play the notification sound
     var soundType = getNotificationSoundType("tell", data.message);
     if (soundType) {
       playNotificationSound(soundType);
@@ -1518,21 +1517,22 @@ function updateUserList(users) {
     userDiv.appendChild(nameSpan);
 
     // Add click handler to open DM (not for self)
-    if (user.nick !== nick && user.deviceId) {
+    if (user.nick !== nick) {
       userDiv.style.cursor = "pointer";
-      userDiv.addEventListener("click", function () {
-        openDMPanel(user.nick, user.deviceId);
-      });
+      (function (userNick, userDeviceId) {
+        userDiv.addEventListener("click", function () {
+          openDMPanel(userNick, userDeviceId);
+        });
+      })(user.nick, user.deviceId);
 
-      // Add unread badge if any
-      if (
-        user.deviceId &&
-        dmUnreadCounts[user.deviceId] &&
-        dmUnreadCounts[user.deviceId] > 0
-      ) {
+      // Add unread badge if any (check both deviceId and nickname-based keys)
+      var unreadKey = user.deviceId || "nick:" + user.nick.toLowerCase();
+      var unreadCount =
+        dmUnreadCounts[user.deviceId] || dmUnreadCounts[unreadKey] || 0;
+      if (unreadCount > 0) {
         var badge = document.createElement("span");
         badge.className = "dm-badge";
-        badge.textContent = dmUnreadCounts[user.deviceId];
+        badge.textContent = unreadCount;
         userDiv.appendChild(badge);
       }
     }
@@ -1590,14 +1590,13 @@ function restoreChatHistory() {
 // ==================== DM Panel Functions ====================
 
 function openDMPanel(recipientNick, recipientDeviceId) {
-  if (!recipientDeviceId) {
-    addMessage("Cannot start DM: user device ID unknown.", "help");
-    return;
-  }
+  // Use deviceId if available, otherwise use nickname-based key
+  var conversationKey =
+    recipientDeviceId || "nick:" + recipientNick.toLowerCase();
 
   dmPanelOpen = true;
   dmRecipient = recipientNick;
-  dmRecipientDeviceId = recipientDeviceId;
+  dmRecipientDeviceId = conversationKey;
 
   // Close other modals
   userListVisible = false;
@@ -1614,10 +1613,16 @@ function openDMPanel(recipientNick, recipientDeviceId) {
   recipientSpan.textContent = "DM: " + recipientNick;
   recipientSpan.style.color = getUserColor(recipientNick);
 
-  // Clear unread count for this recipient
-  if (dmUnreadCounts[recipientDeviceId]) {
+  // Clear unread count for this recipient (check both possible keys)
+  if (dmUnreadCounts[conversationKey]) {
+    delete dmUnreadCounts[conversationKey];
+    updateUserListBadges();
+    updateUsersButtonBadge();
+  }
+  if (recipientDeviceId && dmUnreadCounts[recipientDeviceId]) {
     delete dmUnreadCounts[recipientDeviceId];
     updateUserListBadges();
+    updateUsersButtonBadge();
   }
 
   // Render conversation
@@ -1718,36 +1723,46 @@ function handleIncomingDM(data) {
   var senderNick = data.fromNick;
   var message = data.message;
 
+  // Use deviceId as key, or fall back to nickname for terminal users without deviceId
+  var conversationKey = senderDeviceId || "nick:" + senderNick.toLowerCase();
+
   // Store in conversation
-  if (!dmConversations[senderDeviceId]) {
-    dmConversations[senderDeviceId] = [];
+  if (!dmConversations[conversationKey]) {
+    dmConversations[conversationKey] = [];
   }
-  dmConversations[senderDeviceId].push({
+  dmConversations[conversationKey].push({
     fromDeviceId: senderDeviceId,
     fromNick: senderNick,
     message: message,
     timestamp: Date.now(),
   });
 
-  // Track this user's device ID for future DMs
-  userDeviceIds[senderNick.toLowerCase()] = senderDeviceId;
+  // Track this user's device ID (or nickname key) for future DMs
+  userDeviceIds[senderNick.toLowerCase()] = conversationKey;
 
   // If DM panel is open with this sender, refresh
-  if (dmPanelOpen && dmRecipientDeviceId === senderDeviceId) {
+  if (dmPanelOpen && dmRecipientDeviceId === conversationKey) {
     renderDMConversation();
   } else {
-    // Increment unread count
-    if (!dmUnreadCounts[senderDeviceId]) {
-      dmUnreadCounts[senderDeviceId] = 0;
-    }
-    dmUnreadCounts[senderDeviceId]++;
-    updateUserListBadges();
+    // Track if this is the first unread from this sender
+    var isFirstUnread =
+      !dmUnreadCounts[conversationKey] || dmUnreadCounts[conversationKey] === 0;
 
-    // Show notification in main chat
-    addMessage(
-      "[DM from " + senderNick + "] (click their name to reply)",
-      "tell",
-    );
+    // Increment unread count
+    if (!dmUnreadCounts[conversationKey]) {
+      dmUnreadCounts[conversationKey] = 0;
+    }
+    dmUnreadCounts[conversationKey]++;
+    updateUserListBadges();
+    updateUsersButtonBadge();
+
+    // Only show notification in main chat for the first unread message from this sender
+    if (isFirstUnread) {
+      addMessage(
+        "[DM from " + senderNick + "] (click their name to reply)",
+        "tell",
+      );
+    }
 
     // Play notification sound
     var soundType = getNotificationSoundType("tell", message);
@@ -1767,21 +1782,44 @@ function updateUserListBadges() {
     var userDeviceId = item.getAttribute("data-device-id");
     var existingBadge = item.querySelector(".dm-badge");
 
-    if (
-      userDeviceId &&
-      dmUnreadCounts[userDeviceId] &&
-      dmUnreadCounts[userDeviceId] > 0
-    ) {
+    // Check both deviceId and nickname-based keys for unread counts
+    var unreadKey = userDeviceId || "nick:" + userNick.toLowerCase();
+    var unreadCount =
+      dmUnreadCounts[userDeviceId] || dmUnreadCounts[unreadKey] || 0;
+
+    if (unreadCount > 0) {
       if (!existingBadge) {
         existingBadge = document.createElement("span");
         existingBadge.className = "dm-badge";
         item.appendChild(existingBadge);
       }
-      existingBadge.textContent = dmUnreadCounts[userDeviceId];
+      existingBadge.textContent = unreadCount;
     } else if (existingBadge) {
       existingBadge.remove();
     }
   });
+}
+
+function updateUsersButtonBadge() {
+  // Calculate total unread DMs across all conversations
+  var totalUnread = 0;
+  for (var key in dmUnreadCounts) {
+    totalUnread += dmUnreadCounts[key] || 0;
+  }
+
+  var usersButton = document.getElementById("users-button");
+  var existingBadge = usersButton.querySelector(".dm-badge");
+
+  if (totalUnread > 0) {
+    if (!existingBadge) {
+      existingBadge = document.createElement("span");
+      existingBadge.className = "dm-badge";
+      usersButton.appendChild(existingBadge);
+    }
+    existingBadge.textContent = totalUnread;
+  } else if (existingBadge) {
+    existingBadge.remove();
+  }
 }
 
 function saveDMHistory() {
@@ -1802,4 +1840,6 @@ function restoreDMHistory() {
     dmConversations = {};
     dmUnreadCounts = {};
   }
+  // Update the Users button badge with any restored unread counts
+  updateUsersButtonBadge();
 }

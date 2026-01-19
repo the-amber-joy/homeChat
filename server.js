@@ -382,6 +382,31 @@ function setupNamespace(namespace, users, pendingDisconnects, instanceName) {
 
       // Record this message and broadcast
       messageTimestamps[visitorId].push(now);
+
+      // Handle tell messages (private messages from terminal clients)
+      // Convert them to DM events for browser clients
+      if (data.type === "tell" && data.to && data.from) {
+        var lowerTo = data.to.toLowerCase();
+        var recipientUser = users[lowerTo];
+
+        if (recipientUser && recipientUser.socketId) {
+          // Get sender's device ID
+          var senderDeviceId = found ? found.user.deviceId : null;
+
+          // Send as DM event (for browser clients with DM panel)
+          namespace.to(recipientUser.socketId).emit("dm", {
+            fromDeviceId: senderDeviceId,
+            fromNick: data.from,
+            message: data.message,
+          });
+
+          // Also send the old-style tell message (for terminal clients and backwards compatibility)
+          namespace.to(recipientUser.socketId).emit("message", data);
+        }
+        // Don't broadcast tell messages to everyone
+        return;
+      }
+
       namespace.emit("message", data);
     });
 
@@ -412,26 +437,55 @@ function setupNamespace(namespace, users, pendingDisconnects, instanceName) {
       var senderDeviceId = found.user.deviceId;
       var senderNick = found.user.nick;
       var recipientDeviceId = data.toDeviceId;
+      var recipientNick = data.toNick;
       var message = data.message;
 
-      if (!recipientDeviceId || !message) return;
+      if (!message) return;
 
       // Find recipient's socket(s) to send the DM
       var recipientSockets = [];
-      for (var lowerNick in users) {
-        if (
-          users[lowerNick].deviceId === recipientDeviceId &&
-          users[lowerNick].socketId
-        ) {
-          recipientSockets.push(users[lowerNick].socketId);
+
+      // Check if recipientDeviceId is a nickname-based key (starts with "nick:")
+      if (recipientDeviceId && recipientDeviceId.startsWith("nick:")) {
+        // Look up by nickname instead
+        var targetNick = recipientDeviceId.substring(5); // Remove "nick:" prefix
+        for (var lowerNick in users) {
+          if (lowerNick === targetNick && users[lowerNick].socketId) {
+            recipientSockets.push(users[lowerNick].socketId);
+          }
+        }
+      } else if (recipientDeviceId) {
+        // Look up by device ID
+        for (var lowerNick in users) {
+          if (
+            users[lowerNick].deviceId === recipientDeviceId &&
+            users[lowerNick].socketId
+          ) {
+            recipientSockets.push(users[lowerNick].socketId);
+          }
+        }
+      } else if (recipientNick) {
+        // Fall back to nickname lookup
+        var lowerTargetNick = recipientNick.toLowerCase();
+        if (users[lowerTargetNick] && users[lowerTargetNick].socketId) {
+          recipientSockets.push(users[lowerTargetNick].socketId);
         }
       }
 
       // Send to recipient
       recipientSockets.forEach(function (socketId) {
+        // Send as DM event (for browser clients with DM panel)
         namespace.to(socketId).emit("dm", {
           fromDeviceId: senderDeviceId,
           fromNick: senderNick,
+          message: message,
+        });
+
+        // Also send as tell message (for terminal clients)
+        namespace.to(socketId).emit("message", {
+          type: "tell",
+          from: senderNick,
+          to: recipientNick,
           message: message,
         });
       });

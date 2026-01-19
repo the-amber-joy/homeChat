@@ -248,6 +248,22 @@ body {
   font-family: "Courier New", monospace;
   height: 36px;
   box-sizing: border-box;
+  position: relative;
+}
+
+#users-button .dm-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background-color: #e05050;
+  color: #fff;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 2px 5px;
+  border-radius: 10px;
+  min-width: 16px;
+  text-align: center;
+  line-height: 1.2;
 }
 
 #users-button:hover {
