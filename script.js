@@ -366,9 +366,18 @@ function connectToInstance(instance, isSwitching) {
 
   // Handle After Dark access notification (when invited)
   socket.on("afterDarkAccess", function (access, admin) {
+    var wasAlreadyAuthorized = hasAfterDarkAccess;
     hasAfterDarkAccess = access;
     isAfterDarkAdmin = admin || false;
     updateAfterDarkToggle();
+
+    // Show invitation message if just got access while in Home
+    if (currentInstance === "home" && access && !wasAlreadyAuthorized) {
+      addMessage("", "help");
+      addMessage("💋 You have been invited to Home After Dark!", "help");
+      addMessage("   Click the moon icon or type /dark to join...", "help");
+      addMessage("", "help");
+    }
   });
 
   // Check After Dark access on home connection

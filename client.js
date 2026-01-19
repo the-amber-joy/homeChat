@@ -1,10 +1,35 @@
 var readline = require("readline"),
   socketio = require("socket.io-client"),
-  color = require("ansi-color").set;
+  color = require("ansi-color").set,
+  fs = require("fs"),
+  path = require("path");
+
 var nick;
 var currentUserList = [];
-var socket = socketio("http://localhost:3010");
+var socket = null;
 var rl = readline.createInterface(process.stdin, process.stdout);
+
+// Instance state
+var currentInstance = "home";
+var hasAfterDarkAccess = false;
+var isAfterDarkAdmin = false;
+var afterDarkAdminPassword = null;
+var homeNick = null;
+var afterDarkNick = null;
+
+// Device ID for After Dark authorization
+var deviceIdFile = path.join(
+  process.env.HOME || process.env.USERPROFILE,
+  ".homechat_device_id",
+);
+var deviceId;
+try {
+  deviceId = fs.readFileSync(deviceIdFile, "utf8").trim();
+} catch (e) {
+  deviceId =
+    "terminal_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+  fs.writeFileSync(deviceIdFile, deviceId);
+}
 
 // User selection state (triggered by @)
 var userSelectMode = false;
@@ -13,13 +38,154 @@ var userSelectSelected = 0;
 var savedLine = "";
 var savedCursor = 0;
 
+// Get the prompt based on current instance
+function getPrompt() {
+  if (currentInstance === "afterdark") {
+    return color("💋 > ", "red");
+  }
+  return "🏠 > ";
+}
+
+// Connect to a specific instance
+function connectToInstance(instance, silent) {
+  if (socket) {
+    socket.disconnect();
+  }
+
+  currentInstance = instance;
+
+  var namespace = instance === "afterdark" ? "/afterdark" : "/";
+  var authOptions = {};
+
+  if (instance === "afterdark") {
+    authOptions.deviceId = deviceId;
+    if (afterDarkAdminPassword) {
+      authOptions.adminPassword = afterDarkAdminPassword;
+    }
+  }
+
+  socket = socketio("http://localhost:3010" + namespace, { auth: authOptions });
+
+  // Set up event handlers
+  setupSocketHandlers(silent);
+
+  // Update prompt
+  rl.setPrompt(getPrompt());
+  rl.prompt(true);
+}
+
+function setupSocketHandlers(silent) {
+  socket.on("connect", function () {
+    socket.emit("register", {
+      nickname: nick,
+      deviceId: deviceId,
+      silent: silent,
+    });
+  });
+
+  socket.on("connect_error", function (err) {
+    if (currentInstance === "afterdark") {
+      console_out(
+        color("Could not connect to After Dark: " + err.message, "red"),
+      );
+      hasAfterDarkAccess = false;
+      isAfterDarkAdmin = false;
+      afterDarkAdminPassword = null;
+      connectToInstance("home", true);
+    }
+  });
+
+  socket.on("registered", function (data) {
+    if (!data.quiet && !silent) {
+      socket.emit("send", {
+        type: "notice",
+        message: nick + " has joined the chat",
+      });
+    }
+  });
+
+  socket.on("afterDarkAccess", function (access, admin) {
+    var wasAlreadyAuthorized = hasAfterDarkAccess;
+    hasAfterDarkAccess = access;
+    isAfterDarkAdmin = admin || false;
+
+    if (currentInstance === "afterdark" && access) {
+      console_out(color("Welcome to Home After Dark...", "red"));
+      if (admin) {
+        console_out(
+          color(
+            "You are an admin. Use /invite <user> to invite others.",
+            "red",
+          ),
+        );
+      }
+    } else if (currentInstance === "home" && access && !wasAlreadyAuthorized) {
+      // Just got invited while in Home Chat
+      console_out(color("", "red"));
+      console_out(color("💋 You have been invited to Home After Dark!", "red"));
+      console_out(color("   Type /dark to join...", "red"));
+      console_out(color("", "red"));
+    }
+  });
+
+  socket.on("message", function (data) {
+    var leader;
+    if (data.type == "chat") {
+      leader =
+        getUserColor(data.nick) + "<" + data.nick + ">" + resetColor() + " ";
+      console_out(leader + highlightMentions(formatText(data.message)));
+    } else if (data.type == "notice") {
+      console_out(color(data.message, "cyan"));
+    } else if (data.type == "help") {
+      console_out(color(data.message, "yellow"));
+    } else if (
+      data.type == "tell" &&
+      data.to.toLowerCase() == nick.toLowerCase()
+    ) {
+      leader = color("[" + data.from + "->" + data.to + "]", "red");
+      console_out(leader + " " + highlightMentions(formatText(data.message)));
+    } else if (data.type == "emote") {
+      var spaceIndex = data.message.indexOf(" ");
+      if (spaceIndex > 0) {
+        var emoteNick = data.message.substring(0, spaceIndex);
+        var emoteAction = data.message.substring(spaceIndex + 1);
+        var output =
+          boldText() +
+          getUserColor(emoteNick) +
+          emoteNick +
+          resetColor() +
+          " " +
+          highlightMentions(formatText(emoteAction));
+        console_out(output);
+      } else {
+        console_out(color(data.message, "cyan"));
+      }
+    }
+  });
+
+  socket.on("userList", function (users) {
+    currentUserList = users;
+  });
+
+  // Check After Dark access when on home
+  if (currentInstance === "home") {
+    socket.on("connect", function () {
+      socket.emit("checkAfterDarkAccess", {
+        deviceId: deviceId,
+        adminPassword: afterDarkAdminPassword,
+      });
+    });
+  }
+}
+
 // Set the username
 rl.question("Please enter a nickname: ", function (name) {
   nick = name;
-  socket.emit("register", nick);
-  var msg = nick + " has joined the chat";
-  socket.emit("send", { type: "notice", message: msg });
-  console_out(color("Welcome to the chat!", "yellow"));
+  homeNick = name;
+
+  connectToInstance("home", false);
+
+  console_out(color("Welcome to Home Chat!", "yellow"));
   console_out(color("Type /help to see available commands.", "yellow"));
   console_out("");
   // Show user list after a short delay to ensure server has sent the list
@@ -346,6 +512,16 @@ function show_help() {
   console_out(color("  /who - Show online users", "yellow"));
   console_out(color("  /help - Show this help message", "yellow"));
   console_out(color("  /exit - Log out of chat", "yellow"));
+  if (hasAfterDarkAccess) {
+    if (currentInstance === "home") {
+      console_out(color("  /dark - Switch to After Dark", "red"));
+    } else {
+      console_out(color("  /home - Switch to Home Chat", "yellow"));
+    }
+  }
+  if (isAfterDarkAdmin && currentInstance === "afterdark") {
+    console_out(color("  /invite <user> - Invite user to After Dark", "red"));
+  }
 }
 
 rl.on("line", function (line) {
@@ -452,45 +628,75 @@ function chat_command(cmd, arg) {
       socket.disconnect();
       process.exit(0);
       break;
+    case "dark":
+      if (arg) {
+        // Admin password provided
+        afterDarkAdminPassword = arg;
+        hasAfterDarkAccess = true;
+        isAfterDarkAdmin = true;
+        // Save home nick and switch
+        homeNick = nick;
+        if (afterDarkNick) {
+          nick = afterDarkNick;
+        } else {
+          // Prompt for After Dark nickname
+          rl.question(
+            color("Enter your After Dark nickname: ", "red"),
+            function (newNick) {
+              if (newNick && newNick.trim()) {
+                nick = newNick.trim();
+                afterDarkNick = nick;
+              }
+              connectToInstance("afterdark", true);
+            },
+          );
+          return;
+        }
+        connectToInstance("afterdark", true);
+      } else if (!hasAfterDarkAccess) {
+        console_out("That is not a valid command.");
+      } else if (currentInstance === "afterdark") {
+        console_out("You are already in After Dark.");
+      } else {
+        homeNick = nick;
+        if (afterDarkNick) {
+          nick = afterDarkNick;
+        } else {
+          rl.question(
+            color("Enter your After Dark nickname: ", "red"),
+            function (newNick) {
+              if (newNick && newNick.trim()) {
+                nick = newNick.trim();
+                afterDarkNick = nick;
+              }
+              connectToInstance("afterdark", true);
+            },
+          );
+          return;
+        }
+        connectToInstance("afterdark", true);
+      }
+      break;
+    case "home":
+      if (currentInstance === "home") {
+        console_out("You are already in Home Chat.");
+      } else {
+        afterDarkNick = nick;
+        nick = homeNick || nick;
+        connectToInstance("home", true);
+        console_out(color("Welcome back to Home Chat!", "yellow"));
+      }
+      break;
+    case "invite":
+      if (!isAfterDarkAdmin) {
+        console_out("That is not a valid command.");
+      } else if (!arg) {
+        console_out("Usage: /invite <username>");
+      } else {
+        socket.emit("invite", arg);
+      }
+      break;
     default:
       console_out("That is not a valid command.");
   }
 }
-
-socket.on("message", function (data) {
-  var leader;
-  if (data.type == "chat") {
-    leader =
-      getUserColor(data.nick) + "<" + data.nick + ">" + resetColor() + " ";
-    console_out(leader + highlightMentions(formatText(data.message)));
-  } else if (data.type == "notice") {
-    console_out(color(data.message, "cyan"));
-  } else if (
-    data.type == "tell" &&
-    data.to.toLowerCase() == nick.toLowerCase()
-  ) {
-    leader = color("[" + data.from + "->" + data.to + "]", "red");
-    console_out(leader + " " + highlightMentions(formatText(data.message)));
-  } else if (data.type == "emote") {
-    // Parse emote to highlight username in bold and their color
-    var spaceIndex = data.message.indexOf(" ");
-    if (spaceIndex > 0) {
-      var emoteNick = data.message.substring(0, spaceIndex);
-      var emoteAction = data.message.substring(spaceIndex + 1);
-      var output =
-        boldText() +
-        getUserColor(emoteNick) +
-        emoteNick +
-        resetColor() +
-        " " +
-        highlightMentions(formatText(emoteAction));
-      console_out(output);
-    } else {
-      console_out(color(data.message, "cyan"));
-    }
-  }
-});
-
-socket.on("userList", function (users) {
-  currentUserList = users;
-});
