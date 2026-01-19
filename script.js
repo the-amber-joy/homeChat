@@ -9,6 +9,14 @@ var clientVersion = localStorage.getItem("appVersion") || null;
 var wasRevoked = false; // Flag to show revoked message after switching to Home
 var userColorCache = {}; // Cache colors by username to persist across nick changes
 
+// DM Panel state
+var dmPanelOpen = false;
+var dmRecipient = null; // Current DM recipient nickname
+var dmRecipientDeviceId = null; // Current DM recipient device ID
+var dmConversations = {}; // { recipientDeviceId: [{ from, message, timestamp }] }
+var dmUnreadCounts = {}; // { recipientDeviceId: count }
+var userDeviceIds = {}; // { lowerNick: deviceId } - track device IDs for users
+
 // Device ID for persistent identification (used for After Dark authorization)
 var deviceId = localStorage.getItem("deviceId");
 if (!deviceId) {
@@ -335,6 +343,11 @@ function connectToInstance(instance, isSwitching) {
     handleMessage(data);
   });
 
+  // Listen for incoming DMs
+  socket.on("dm", function (data) {
+    handleIncomingDM(data);
+  });
+
   // Listen for user list updates
   socket.on("userList", function (users) {
     updateUserList(users);
@@ -426,6 +439,14 @@ function connectToInstance(instance, isSwitching) {
   var messagesDiv = document.getElementById("messages");
   messagesDiv.innerHTML = "";
   var historyRestored = restoreChatHistory();
+
+  // Restore DM history for this instance
+  restoreDMHistory();
+
+  // Close any open DM panel when switching instances
+  if (dmPanelOpen) {
+    closeDMPanel();
+  }
 
   // Show welcome message if no history
   if (!historyRestored) {
@@ -595,6 +616,7 @@ function joinChat() {
     var usersModal = document.getElementById("users-modal");
     var audioButton = document.getElementById("audio-button");
     var settingsModal = document.getElementById("settings-modal");
+    var dmPanel = document.getElementById("dm-panel");
 
     if (
       userListVisible &&
@@ -615,7 +637,31 @@ function joinChat() {
       settingsVisible = false;
       settingsModal.style.display = "none";
     }
+
+    // Close DM panel when clicking outside (but not on user list items which open it)
+    if (
+      dmPanelOpen &&
+      !dmPanel.contains(e.target) &&
+      !usersModal.contains(e.target)
+    ) {
+      closeDMPanel();
+    }
   });
+
+  // DM panel close button
+  document.getElementById("dm-close").addEventListener("click", function () {
+    closeDMPanel();
+  });
+
+  // DM send button and enter key
+  document.getElementById("dm-send").addEventListener("click", sendDMMessage);
+  document
+    .getElementById("dm-input")
+    .addEventListener("keypress", function (e) {
+      if (e.key === "Enter") {
+        sendDMMessage();
+      }
+    });
 
   // Handle sending messages
   document.getElementById("send-button").addEventListener("click", sendMessage);
@@ -705,7 +751,7 @@ function joinChat() {
       }
     }
 
-    // Find @ symbol before cursor for user mentions
+    // Find @ symbol before cursor for user mentions (public highlights)
     var atPos = value.lastIndexOf("@", cursorPos - 1);
 
     if (atPos >= 0 && (atPos === 0 || value[atPos - 1] === " ")) {
@@ -718,7 +764,7 @@ function joinChat() {
       });
 
       if (filtered.length > 0) {
-        showUserAutocomplete(filtered, atPos);
+        showUserAutocomplete(filtered, atPos, false);
         return;
       }
     }
@@ -759,11 +805,12 @@ function joinChat() {
     }
   });
 
-  function showUserAutocomplete(users, atPos, isArg) {
+  function showUserAutocomplete(users, startPos, isArg) {
     autocompleteVisible = true;
     autocompleteItems = users;
     autocompleteSelected = 0;
-    autocompleteStartPos = atPos;
+    autocompleteStartPos = startPos;
+    // isArg is true for command arguments (no @ prefix), false for @ mentions
     autocompleteType = isArg ? "user-arg" : "user";
 
     var dropdown = document.getElementById("autocomplete-dropdown");
@@ -852,8 +899,8 @@ function joinChat() {
     var cursorPos = messageInput.selectionStart;
 
     if (autocompleteType === "user") {
+      // @ mention - insert @username
       var selectedUser = autocompleteItems[autocompleteSelected];
-      // Replace from @ to cursor with selected username
       var newValue =
         value.substring(0, autocompleteStartPos) +
         "@" +
@@ -967,36 +1014,12 @@ function sendMessage() {
 
   if (!line) return;
 
-  if (line[0] === "@" && line.length > 1) {
-    // Handle private message @username message
-    var spaceIndex = line.indexOf(" ");
-    if (spaceIndex > 1) {
-      var to = line.substring(1, spaceIndex);
-      var message = line.substring(spaceIndex + 1);
-      // Find actual usernames (case-insensitive match)
-      var actualTo =
-        currentUserList.find(function (u) {
-          return u.toLowerCase() === to.toLowerCase();
-        }) || to;
-      var actualFrom =
-        currentUserList.find(function (u) {
-          return u.toLowerCase() === nick.toLowerCase();
-        }) || nick;
-      socket.emit("send", {
-        type: "tell",
-        message: message,
-        to: actualTo,
-        from: actualFrom,
-      });
-      addMessage("[" + actualFrom + " -> " + actualTo + "] " + message, "tell");
-    } else {
-      addMessage("Usage: @username message", "help");
-    }
-  } else if (line[0] === "/" && line.length > 1) {
+  if (line[0] === "/" && line.length > 1) {
     var cmd = line.match(/[a-z]+\b/)[0];
     var arg = line.substr(cmd.length + 2, line.length);
     chatCommand(cmd, arg);
   } else {
+    // Regular chat message - @mentions are public highlights handled by formatText
     socket.emit("send", { type: "chat", message: line, nick: nick });
     addMessage("<" + nick + "> " + line, "chat", nick);
   }
@@ -1119,7 +1142,7 @@ function chatCommand(cmd, arg) {
 
 function showHelp() {
   addMessage("Available commands:", "help");
-  addMessage("  @username <message> - Send a private message", "help");
+  addMessage("  @username - Highlight/mention someone in chat", "help");
   addMessage("  /nick <name> - Change your nickname", "help");
   addMessage("  /me <action> - Send an emote", "help");
   addMessage("  /kick <user> - Kick a user from chat", "help");
@@ -1127,6 +1150,8 @@ function showHelp() {
   addMessage("  /who - Show online users", "help");
   addMessage("  /help - Show this help message", "help");
   addMessage("  /exit - Log out of chat", "help");
+  addMessage("Private messages:", "help");
+  addMessage("  Click a username in the user list to open DMs", "help");
   if (hasAfterDarkAccess) {
     if (currentInstance === "home") {
       addMessage("  /dark - Switch to After Dark", "help");
@@ -1454,10 +1479,18 @@ function addUserListItem(text, isCurrentUser) {
 }
 
 function updateUserList(users) {
-  // Users is now an array of { nick, idle } objects
+  // Users is now an array of { nick, idle, deviceId } objects
   currentUserList = users.map(function (u) {
     return u.nick;
   });
+
+  // Track device IDs for DM functionality
+  users.forEach(function (u) {
+    if (u.deviceId) {
+      userDeviceIds[u.nick.toLowerCase()] = u.deviceId;
+    }
+  });
+
   var usersList = document.getElementById("users-list");
   var userCount = document.getElementById("user-count");
 
@@ -1467,15 +1500,43 @@ function updateUserList(users) {
   users.forEach(function (user) {
     var userDiv = document.createElement("div");
     userDiv.className = "user-item";
+    userDiv.setAttribute("data-nick", user.nick);
+    userDiv.setAttribute("data-device-id", user.deviceId || "");
+
     if (user.idle) {
       userDiv.classList.add("user-idle");
     }
-    userDiv.style.color = getUserColor(user.nick);
+
+    var nameSpan = document.createElement("span");
+    nameSpan.className = "user-name";
+    nameSpan.style.color = getUserColor(user.nick);
     if (user.nick === nick) {
-      userDiv.textContent = "* " + user.nick;
+      nameSpan.textContent = "* " + user.nick;
     } else {
-      userDiv.textContent = user.nick;
+      nameSpan.textContent = user.nick;
     }
+    userDiv.appendChild(nameSpan);
+
+    // Add click handler to open DM (not for self)
+    if (user.nick !== nick && user.deviceId) {
+      userDiv.style.cursor = "pointer";
+      userDiv.addEventListener("click", function () {
+        openDMPanel(user.nick, user.deviceId);
+      });
+
+      // Add unread badge if any
+      if (
+        user.deviceId &&
+        dmUnreadCounts[user.deviceId] &&
+        dmUnreadCounts[user.deviceId] > 0
+      ) {
+        var badge = document.createElement("span");
+        badge.className = "dm-badge";
+        badge.textContent = dmUnreadCounts[user.deviceId];
+        userDiv.appendChild(badge);
+      }
+    }
+
     usersList.appendChild(userDiv);
   });
 }
@@ -1524,4 +1585,221 @@ function restoreChatHistory() {
   }
 
   return false; // No history to restore
+}
+
+// ==================== DM Panel Functions ====================
+
+function openDMPanel(recipientNick, recipientDeviceId) {
+  if (!recipientDeviceId) {
+    addMessage("Cannot start DM: user device ID unknown.", "help");
+    return;
+  }
+
+  dmPanelOpen = true;
+  dmRecipient = recipientNick;
+  dmRecipientDeviceId = recipientDeviceId;
+
+  // Close other modals
+  userListVisible = false;
+  settingsVisible = false;
+  document.getElementById("users-modal").style.display = "none";
+  document.getElementById("settings-modal").style.display = "none";
+
+  // Show panel
+  var panel = document.getElementById("dm-panel");
+  panel.style.display = "flex";
+
+  // Update header with recipient name and color
+  var recipientSpan = document.getElementById("dm-recipient");
+  recipientSpan.textContent = "DM: " + recipientNick;
+  recipientSpan.style.color = getUserColor(recipientNick);
+
+  // Clear unread count for this recipient
+  if (dmUnreadCounts[recipientDeviceId]) {
+    delete dmUnreadCounts[recipientDeviceId];
+    updateUserListBadges();
+  }
+
+  // Render conversation
+  renderDMConversation();
+
+  // Focus input
+  document.getElementById("dm-input").focus();
+
+  // Re-render feather icons
+  if (typeof feather !== "undefined") {
+    feather.replace();
+  }
+
+  // Join DM room on server
+  socket.emit("joinDM", recipientDeviceId);
+}
+
+function closeDMPanel() {
+  dmPanelOpen = false;
+  var savedRecipientDeviceId = dmRecipientDeviceId;
+  dmRecipient = null;
+  dmRecipientDeviceId = null;
+
+  document.getElementById("dm-panel").style.display = "none";
+
+  // Leave DM room on server
+  if (savedRecipientDeviceId) {
+    socket.emit("leaveDM", savedRecipientDeviceId);
+  }
+}
+
+function renderDMConversation() {
+  var messagesDiv = document.getElementById("dm-messages");
+  messagesDiv.innerHTML = "";
+
+  if (!dmRecipientDeviceId || !dmConversations[dmRecipientDeviceId]) {
+    var emptyDiv = document.createElement("div");
+    emptyDiv.className = "dm-empty";
+    emptyDiv.textContent = "No messages yet. Say hi!";
+    messagesDiv.appendChild(emptyDiv);
+    return;
+  }
+
+  var messages = dmConversations[dmRecipientDeviceId];
+  messages.forEach(function (msg) {
+    var msgDiv = document.createElement("div");
+    msgDiv.className = "dm-message";
+
+    var isSent = msg.fromDeviceId === deviceId;
+    msgDiv.classList.add(isSent ? "sent" : "received");
+
+    var contentSpan = document.createElement("span");
+    contentSpan.innerHTML = formatText(msg.message);
+    msgDiv.appendChild(contentSpan);
+
+    messagesDiv.appendChild(msgDiv);
+  });
+
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+function sendDMMessage() {
+  var input = document.getElementById("dm-input");
+  var message = input.value.trim();
+
+  if (!message || !dmRecipientDeviceId) return;
+
+  // Store in local conversation
+  if (!dmConversations[dmRecipientDeviceId]) {
+    dmConversations[dmRecipientDeviceId] = [];
+  }
+  dmConversations[dmRecipientDeviceId].push({
+    fromDeviceId: deviceId,
+    fromNick: nick,
+    message: message,
+    timestamp: Date.now(),
+  });
+
+  // Send to server
+  socket.emit("sendDM", {
+    toDeviceId: dmRecipientDeviceId,
+    toNick: dmRecipient,
+    message: message,
+  });
+
+  // Re-render
+  renderDMConversation();
+
+  // Save DM history
+  saveDMHistory();
+
+  // Clear input
+  input.value = "";
+}
+
+function handleIncomingDM(data) {
+  var senderDeviceId = data.fromDeviceId;
+  var senderNick = data.fromNick;
+  var message = data.message;
+
+  // Store in conversation
+  if (!dmConversations[senderDeviceId]) {
+    dmConversations[senderDeviceId] = [];
+  }
+  dmConversations[senderDeviceId].push({
+    fromDeviceId: senderDeviceId,
+    fromNick: senderNick,
+    message: message,
+    timestamp: Date.now(),
+  });
+
+  // Track this user's device ID for future DMs
+  userDeviceIds[senderNick.toLowerCase()] = senderDeviceId;
+
+  // If DM panel is open with this sender, refresh
+  if (dmPanelOpen && dmRecipientDeviceId === senderDeviceId) {
+    renderDMConversation();
+  } else {
+    // Increment unread count
+    if (!dmUnreadCounts[senderDeviceId]) {
+      dmUnreadCounts[senderDeviceId] = 0;
+    }
+    dmUnreadCounts[senderDeviceId]++;
+    updateUserListBadges();
+
+    // Show notification in main chat
+    addMessage(
+      "[DM from " + senderNick + "] (click their name to reply)",
+      "tell",
+    );
+
+    // Play notification sound
+    var soundType = getNotificationSoundType("tell", message);
+    if (soundType) {
+      playNotificationSound(soundType);
+    }
+  }
+
+  // Save DM history
+  saveDMHistory();
+}
+
+function updateUserListBadges() {
+  var userItems = document.querySelectorAll("#users-list .user-item");
+  userItems.forEach(function (item) {
+    var userNick = item.getAttribute("data-nick");
+    var userDeviceId = item.getAttribute("data-device-id");
+    var existingBadge = item.querySelector(".dm-badge");
+
+    if (
+      userDeviceId &&
+      dmUnreadCounts[userDeviceId] &&
+      dmUnreadCounts[userDeviceId] > 0
+    ) {
+      if (!existingBadge) {
+        existingBadge = document.createElement("span");
+        existingBadge.className = "dm-badge";
+        item.appendChild(existingBadge);
+      }
+      existingBadge.textContent = dmUnreadCounts[userDeviceId];
+    } else if (existingBadge) {
+      existingBadge.remove();
+    }
+  });
+}
+
+function saveDMHistory() {
+  var dmData = {
+    conversations: dmConversations,
+    unreadCounts: dmUnreadCounts,
+  };
+  localStorage.setItem("dmHistory_" + currentInstance, JSON.stringify(dmData));
+}
+
+function restoreDMHistory() {
+  var dmData = localStorage.getItem("dmHistory_" + currentInstance);
+  if (dmData) {
+    var parsed = JSON.parse(dmData);
+    dmConversations = parsed.conversations || {};
+    dmUnreadCounts = parsed.unreadCounts || {};
+  } else {
+    dmConversations = {};
+    dmUnreadCounts = {};
+  }
 }

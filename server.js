@@ -164,6 +164,7 @@ function getUserList(users) {
     list.push({
       nick: users[lowerNick].nick,
       idle: users[lowerNick].idle || false,
+      deviceId: users[lowerNick].deviceId || null,
     });
   }
   return list;
@@ -177,6 +178,13 @@ function findUserBySocketId(users, socketId) {
     }
   }
   return null;
+}
+
+// Helper to create consistent DM room name from two device IDs
+function getDMRoomName(deviceId1, deviceId2) {
+  // Sort alphabetically to ensure same room regardless of who initiates
+  var sorted = [deviceId1, deviceId2].sort();
+  return "dm:" + sorted[0] + ":" + sorted[1];
 }
 
 // App version - increment this when you want clients to reload
@@ -375,6 +383,58 @@ function setupNamespace(namespace, users, pendingDisconnects, instanceName) {
       // Record this message and broadcast
       messageTimestamps[visitorId].push(now);
       namespace.emit("message", data);
+    });
+
+    // Handle joining a DM room
+    socket.on("joinDM", function (recipientDeviceId) {
+      var found = findUserBySocketId(users, socket.id);
+      if (found && found.user.deviceId) {
+        // Create a consistent room name (sorted device IDs)
+        var roomName = getDMRoomName(found.user.deviceId, recipientDeviceId);
+        socket.join(roomName);
+      }
+    });
+
+    // Handle leaving a DM room
+    socket.on("leaveDM", function (recipientDeviceId) {
+      var found = findUserBySocketId(users, socket.id);
+      if (found && found.user.deviceId) {
+        var roomName = getDMRoomName(found.user.deviceId, recipientDeviceId);
+        socket.leave(roomName);
+      }
+    });
+
+    // Handle sending a DM
+    socket.on("sendDM", function (data) {
+      var found = findUserBySocketId(users, socket.id);
+      if (!found || !found.user.deviceId) return;
+
+      var senderDeviceId = found.user.deviceId;
+      var senderNick = found.user.nick;
+      var recipientDeviceId = data.toDeviceId;
+      var message = data.message;
+
+      if (!recipientDeviceId || !message) return;
+
+      // Find recipient's socket(s) to send the DM
+      var recipientSockets = [];
+      for (var lowerNick in users) {
+        if (
+          users[lowerNick].deviceId === recipientDeviceId &&
+          users[lowerNick].socketId
+        ) {
+          recipientSockets.push(users[lowerNick].socketId);
+        }
+      }
+
+      // Send to recipient
+      recipientSockets.forEach(function (socketId) {
+        namespace.to(socketId).emit("dm", {
+          fromDeviceId: senderDeviceId,
+          fromNick: senderNick,
+          message: message,
+        });
+      });
     });
 
     // Handle kick command

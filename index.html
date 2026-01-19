@@ -78,11 +78,21 @@
       <h3>Online Users</h3>
       <div id="users-list"></div>
     </div>
+    <div id="dm-panel" style="display: none;">
+      <div id="dm-header">
+        <span id="dm-recipient"></span>
+        <button id="dm-close"><i data-feather="x"></i></button>
+      </div>
+      <div id="dm-messages"></div>
+      <div id="dm-input-area">
+        <input type="text" id="dm-input" placeholder="Type a message..." autocomplete="off" />
+        <button id="dm-send">Send</button>
+      </div>
+    </div>
     <div id="messages"></div>
     <div id="autocomplete-dropdown" style="display: none;"></div>
     <div id="input-area">
-      <input type="text" id="message-input" placeholder="Type a message, @username for DM, or / for commands"
-        autocomplete="off" />
+      <input type="text" id="message-input" placeholder="Type a message or / for commands" autocomplete="off" />
       <button id="send-button">Send</button>
     </div>
   </div>
