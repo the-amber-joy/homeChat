@@ -1140,7 +1140,11 @@ function showHelp() {
 }
 
 function fetchQuoteOfTheDay() {
-  addMessage(nick + " requested a quote...", "notice");
+  // Notify others that we're fetching a quote
+  socket.emit("send", {
+    type: "notice",
+    message: nick + " requested a quote...",
+  });
 
   fetch("/api/quote")
     .then(function (response) {
@@ -1154,7 +1158,8 @@ function fetchQuoteOfTheDay() {
       var quote = data[0];
       var quoteText = quote.q;
       var author = quote.a;
-      addQuote(quoteText, author);
+      // Broadcast the quote to everyone
+      socket.emit("send", { type: "quote", text: quoteText, author: author });
     })
     .catch(function (error) {
       addMessage("Could not fetch quote: " + error.message, "help");
@@ -1368,6 +1373,8 @@ function handleMessage(data) {
     if (soundType) {
       playNotificationSound(soundType);
     }
+  } else if (data.type === "quote") {
+    addQuote(data.text, data.author);
   }
 }
 

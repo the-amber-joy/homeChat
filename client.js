@@ -185,6 +185,11 @@ function setupSocketHandlers(silent) {
       } else {
         console_out(color(data.message, "cyan"));
       }
+    } else if (data.type == "quote") {
+      console_out("");
+      console_out(color('  "' + data.text + '"', "green"));
+      console_out(color("    — " + data.author, "green"));
+      console_out("");
     }
   });
 
@@ -529,12 +534,14 @@ function highlightMentions(text) {
 
 function show_help() {
   console_out(color("Available commands:", "yellow"));
-  console_out(color("  /nick <name> - Change your nickname", "yellow"));
   console_out(
     color("  @username <message> - Send a private message", "yellow"),
   );
+  console_out(color("  /nick <name> - Change your nickname", "yellow"));
   console_out(color("  /me <action> - Send an emote", "yellow"));
   console_out(color("  /who - Show online users", "yellow"));
+  console_out(color("  /kick <user> - Kick a user from chat", "yellow"));
+  console_out(color("  /qotd - Get a random quote", "yellow"));
   console_out(color("  /help - Show this help message", "yellow"));
   console_out(color("  /exit - Log out of chat", "yellow"));
   if (hasAfterDarkAccess) {
@@ -550,6 +557,47 @@ function show_help() {
       color("  /revoke <user> - Revoke user's After Dark access", "red"),
     );
   }
+}
+
+function fetchQuoteOfTheDay() {
+  // Notify others that we're fetching a quote
+  socket.emit("send", {
+    type: "notice",
+    message: nick + " requested a quote...",
+  });
+
+  var http = require("http");
+  var options = {
+    hostname: "localhost",
+    port: 3010,
+    path: "/api/quote",
+    method: "GET",
+  };
+
+  var req = http.request(options, function (res) {
+    var data = "";
+    res.on("data", function (chunk) {
+      data += chunk;
+    });
+    res.on("end", function () {
+      try {
+        var parsed = JSON.parse(data);
+        var quote = parsed[0];
+        var quoteText = quote.q;
+        var author = quote.a;
+        // Broadcast the quote to everyone
+        socket.emit("send", { type: "quote", text: quoteText, author: author });
+      } catch (e) {
+        console_out(color("Could not fetch quote: " + e.message, "red"));
+      }
+    });
+  });
+
+  req.on("error", function (err) {
+    console_out(color("Could not fetch quote: " + err.message, "red"));
+  });
+
+  req.end();
 }
 
 rl.on("line", function (line) {
@@ -655,6 +703,16 @@ function chat_command(cmd, arg) {
       console_out(color("Goodbye!", "yellow"));
       socket.disconnect();
       process.exit(0);
+      break;
+    case "kick":
+      if (!arg) {
+        console_out("Usage: /kick <username>");
+      } else {
+        socket.emit("kick", arg);
+      }
+      break;
+    case "qotd":
+      fetchQuoteOfTheDay();
       break;
     case "dark":
       if (arg) {
