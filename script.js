@@ -1135,6 +1135,13 @@ function chatCommand(cmd, arg) {
         });
       }
       break;
+    case "ascii":
+      if (!arg) {
+        addMessage("Usage: /ascii <name> - e.g. /ascii kiss", "help");
+      } else {
+        socket.emit("ascii", arg);
+      }
+      break;
     default:
       addMessage("That is not a valid command.", "help");
   }
@@ -1216,6 +1223,31 @@ function addQuote(text, author) {
   messageDiv.appendChild(quoteBlock);
   container.appendChild(messageDiv);
   container.scrollTop = container.scrollHeight;
+}
+
+function addAsciiArt(art, senderNick) {
+  var container = document.getElementById("messages");
+  var messageDiv = document.createElement("div");
+  messageDiv.className = "message ascii";
+
+  // Add sender label
+  var senderSpan = document.createElement("span");
+  senderSpan.className = "ascii-sender";
+  senderSpan.style.color = getUserColor(senderNick);
+  senderSpan.textContent = senderNick + " shares:";
+  messageDiv.appendChild(senderSpan);
+
+  // Add the ASCII art in a pre element to preserve whitespace exactly
+  var artPre = document.createElement("pre");
+  artPre.className = "ascii-art";
+  artPre.textContent = art;
+  messageDiv.appendChild(artPre);
+
+  container.appendChild(messageDiv);
+  container.scrollTop = container.scrollHeight;
+
+  // Save chat history
+  saveChatHistory();
 }
 
 function formatText(text) {
@@ -1403,6 +1435,8 @@ function handleMessage(data) {
     }
   } else if (data.type === "quote") {
     addQuote(data.text, data.author);
+  } else if (data.type === "ascii") {
+    addAsciiArt(data.art, data.nick);
   } else if (data.type === "help") {
     addMessage(data.message, "help");
   }

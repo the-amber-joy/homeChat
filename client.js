@@ -190,6 +190,10 @@ function setupSocketHandlers(silent) {
       console_out(color('  "' + data.text + '"', "green"));
       console_out(color("    — " + data.author, "green"));
       console_out("");
+    } else if (data.type == "ascii") {
+      console_out("");
+      console_out(getUserColor(data.nick) + data.nick + resetColor() + " shares:");
+      console_out(color(data.art, "cyan"));
     }
   });
 
@@ -542,6 +546,7 @@ function show_help() {
   console_out(color("  /who - Show online users", "yellow"));
   console_out(color("  /kick <user> - Kick a user from chat", "yellow"));
   console_out(color("  /qotd - Get a random quote", "yellow"));
+  console_out(color("  /kiss - Send a kiss (ASCII art)", "yellow"));
   console_out(color("  /help - Show this help message", "yellow"));
   console_out(color("  /exit - Log out of chat", "yellow"));
   if (hasAfterDarkAccess) {
@@ -790,6 +795,13 @@ function chat_command(cmd, arg) {
         console_out("Usage: /revoke <username>");
       } else {
         socket.emit("revoke", arg);
+      }
+      break;
+    case "ascii":
+      if (!arg) {
+        console_out("Usage: /ascii <name> - e.g. /ascii kiss");
+      } else {
+        socket.emit("ascii", arg);
       }
       break;
     default:

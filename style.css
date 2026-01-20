@@ -141,6 +141,31 @@ body {
   display: block;
 }
 
+/* ASCII Art styles */
+.ascii {
+  margin: 10px 0;
+}
+
+.ascii-sender {
+  font-weight: bold;
+  display: block;
+  margin-bottom: 5px;
+}
+
+.ascii-art {
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.1;
+  color: var(--accent-color);
+  background-color: #252526;
+  padding: 10px 15px;
+  border-radius: 5px;
+  border-left: 4px solid var(--accent-color);
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre;
+}
+
 .userlist {
   color: #c586c0;
 }

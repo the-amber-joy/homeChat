@@ -62,6 +62,36 @@ var authorizedDevices = loadAuthorizedDevices();
 // Device registry: { deviceId: { homeNick, afterDarkNick } }
 var deviceRegistry = loadDeviceRegistry();
 
+// ASCII art directory
+var ASCII_ART_DIR = path.join(__dirname, "ascii_art");
+
+// Load ASCII art from file
+function loadAsciiArt(name) {
+  try {
+    var filePath = path.join(ASCII_ART_DIR, name + ".txt");
+    if (fs.existsSync(filePath)) {
+      return fs.readFileSync(filePath, "utf8");
+    }
+  } catch (err) {
+    console.error("Error loading ASCII art:", err);
+  }
+  return null;
+}
+
+// Get list of available ASCII art
+function getAvailableAsciiArt() {
+  try {
+    if (fs.existsSync(ASCII_ART_DIR)) {
+      return fs.readdirSync(ASCII_ART_DIR)
+        .filter(function(file) { return file.endsWith(".txt"); })
+        .map(function(file) { return file.replace(".txt", ""); });
+    }
+  } catch (err) {
+    console.error("Error listing ASCII art:", err);
+  }
+  return [];
+}
+
 // Create HTTP server and Socket.IO instance
 var server = http.createServer(function (req, res) {
   if (req.url === "/" || req.url === "/index.html") {
@@ -514,6 +544,27 @@ function setupNamespace(namespace, users, pendingDisconnects, instanceName) {
         socket.emit("message", {
           type: "help",
           message: "User '" + targetNick + "' not found.",
+        });
+      }
+    });
+
+    // Handle ASCII art command
+    socket.on("ascii", function (artName) {
+      var found = findUserBySocketId(users, socket.id);
+      var senderNick = found ? found.user.nick : "Unknown";
+
+      var art = loadAsciiArt(artName);
+      if (art) {
+        namespace.emit("message", {
+          type: "ascii",
+          art: art,
+          artName: artName,
+          nick: senderNick,
+        });
+      } else {
+        socket.emit("message", {
+          type: "help",
+          message: "ASCII art '" + artName + "' not found.",
         });
       }
     });
