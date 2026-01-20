@@ -194,10 +194,11 @@ function shouldPlayNotification(messageType, messageText) {
   return getNotificationSoundType(messageType, messageText) !== null;
 }
 
-// After Dark access state
-var hasAfterDarkAccess = false;
+// After Dark access state (load from sessionStorage to prevent duplicate invitation messages on refresh)
+var hasAfterDarkAccess = sessionStorage.getItem("hasAfterDarkAccess") === "true";
 var isAfterDarkAdmin = false;
-var afterDarkAdminPassword = null; // Only set if user enters admin password
+// Load admin password from sessionStorage (survives refresh, cleared on tab close)
+var afterDarkAdminPassword = sessionStorage.getItem("afterDarkAdminPassword") || null;
 
 // Check if user has a saved nickname for this instance
 var savedNick = localStorage.getItem("chatNickname_" + currentInstance);
@@ -322,6 +323,8 @@ function connectToInstance(instance, isSwitching) {
       hasAfterDarkAccess = false;
       isAfterDarkAdmin = false;
       afterDarkAdminPassword = null;
+      sessionStorage.removeItem("afterDarkAdminPassword");
+      sessionStorage.removeItem("hasAfterDarkAccess");
       // Fall back to home
       connectToInstance("home", false);
     }
@@ -396,6 +399,12 @@ function connectToInstance(instance, isSwitching) {
     var wasAlreadyAuthorized = hasAfterDarkAccess;
     hasAfterDarkAccess = access;
     isAfterDarkAdmin = admin || false;
+    // Persist access state to sessionStorage
+    if (access) {
+      sessionStorage.setItem("hasAfterDarkAccess", "true");
+    } else {
+      sessionStorage.removeItem("hasAfterDarkAccess");
+    }
     updateAfterDarkToggle();
 
     // Show invitation message if just got access while in Home
@@ -1092,6 +1101,7 @@ function chatCommand(cmd, arg) {
       // If arg is provided, treat it as admin password
       if (arg) {
         afterDarkAdminPassword = arg;
+        sessionStorage.setItem("afterDarkAdminPassword", arg);
         hasAfterDarkAccess = true; // Assume access, server will reject if wrong
         isAfterDarkAdmin = true;
         saveChatHistory();

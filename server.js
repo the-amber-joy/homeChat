@@ -82,9 +82,14 @@ function loadAsciiArt(name) {
 function getAvailableAsciiArt() {
   try {
     if (fs.existsSync(ASCII_ART_DIR)) {
-      return fs.readdirSync(ASCII_ART_DIR)
-        .filter(function(file) { return file.endsWith(".txt"); })
-        .map(function(file) { return file.replace(".txt", ""); });
+      return fs
+        .readdirSync(ASCII_ART_DIR)
+        .filter(function (file) {
+          return file.endsWith(".txt");
+        })
+        .map(function (file) {
+          return file.replace(".txt", "");
+        });
     }
   } catch (err) {
     console.error("Error listing ASCII art:", err);
@@ -218,7 +223,7 @@ function getDMRoomName(deviceId1, deviceId2) {
 }
 
 // App version - increment this when you want clients to reload
-var appVersion = "1.0.1";
+var appVersion = "1.0.2";
 
 // Listen on port 3010 on all network interfaces
 server.listen(3010, "0.0.0.0", function () {

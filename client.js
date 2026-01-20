@@ -192,7 +192,9 @@ function setupSocketHandlers(silent) {
       console_out("");
     } else if (data.type == "ascii") {
       console_out("");
-      console_out(getUserColor(data.nick) + data.nick + resetColor() + " shares:");
+      console_out(
+        getUserColor(data.nick) + data.nick + resetColor() + " shares:",
+      );
       console_out(color(data.art, "cyan"));
     }
   });
