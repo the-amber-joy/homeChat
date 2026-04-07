@@ -2,6 +2,8 @@
 
 Home Chat is a small chatroom app for local household use. Run it on a Raspberry Pi or any always-on machine in your house, then open it from browsers on your local network.
 
+![Home Chat](image.png)
+
 ## Features
 
 - browser-based chat for anyone on your home network
