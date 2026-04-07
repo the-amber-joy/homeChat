@@ -4,7 +4,7 @@
   "description": "Chat at home",
   "main": "server.js",
   "scripts": {
-    "test": "test"
+    "start": "node server.js"
   },
   "keywords": [
     "home",

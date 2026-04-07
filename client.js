@@ -4,6 +4,12 @@ var readline = require("readline"),
   fs = require("fs"),
   path = require("path");
 
+var rawServerTarget = process.env.HOMECHAT_SERVER || "localhost:3010";
+var serverOrigin = /^https?:\/\//i.test(rawServerTarget)
+  ? rawServerTarget
+  : "http://" + rawServerTarget;
+var serverUrl = new URL(serverOrigin);
+
 var nick;
 var currentUserList = [];
 var socket = null;
@@ -71,7 +77,7 @@ function connectToInstance(instance, isSwitching) {
     }
   }
 
-  socket = socketio("http://localhost:3010" + namespace, { auth: authOptions });
+  socket = socketio(serverUrl.origin + namespace, { auth: authOptions });
 
   // Set up event handlers
   setupSocketHandlers(silent);
@@ -574,10 +580,11 @@ function fetchQuoteOfTheDay() {
   });
 
   var http = require("http");
+  var quotePath = (serverUrl.pathname || "/").replace(/\/$/, "") + "/api/quote";
   var options = {
-    hostname: "localhost",
-    port: 3010,
-    path: "/api/quote",
+    hostname: serverUrl.hostname,
+    port: serverUrl.port || (serverUrl.protocol === "https:" ? 443 : 80),
+    path: quotePath,
     method: "GET",
   };
 

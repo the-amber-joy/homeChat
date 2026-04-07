@@ -195,10 +195,12 @@ function shouldPlayNotification(messageType, messageText) {
 }
 
 // After Dark access state (load from sessionStorage to prevent duplicate invitation messages on refresh)
-var hasAfterDarkAccess = sessionStorage.getItem("hasAfterDarkAccess") === "true";
+var hasAfterDarkAccess =
+  sessionStorage.getItem("hasAfterDarkAccess") === "true";
 var isAfterDarkAdmin = false;
 // Load admin password from sessionStorage (survives refresh, cleared on tab close)
-var afterDarkAdminPassword = sessionStorage.getItem("afterDarkAdminPassword") || null;
+var afterDarkAdminPassword =
+  sessionStorage.getItem("afterDarkAdminPassword") || null;
 
 // Check if user has a saved nickname for this instance
 var savedNick = localStorage.getItem("chatNickname_" + currentInstance);
