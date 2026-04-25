@@ -1,8 +1,16 @@
 var readline = require("readline"),
   socketio = require("socket.io-client"),
-  color = require("ansi-color").set,
+  pc = require("picocolors"),
   fs = require("fs"),
   path = require("path");
+
+function color(text, tone) {
+  var formatter = pc[tone];
+  if (typeof formatter === "function") {
+    return formatter(text);
+  }
+  return text;
+}
 
 var rawServerTarget = process.env.HOMECHAT_SERVER || "localhost:3010";
 var serverOrigin = /^https?:\/\//i.test(rawServerTarget)
