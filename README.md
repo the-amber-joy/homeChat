@@ -112,6 +112,61 @@ set HOMECHAT_SERVER=home.local:3010 && node client.js
 
 You can also use a full URL such as `http://home.local:3010`.
 
+## Running as a System Service (Raspberry Pi)
+
+For an always-on Pi the recommended way to manage the server is **systemd** — it's already on Raspbian, uses no extra RAM, and handles autostart on boot.
+
+### 1. Create a private env file for Home Chat
+
+Use a dedicated file instead of `/etc/environment` so the password is not globally exposed:
+
+```bash
+sudo install -d -m 700 /etc/homechat
+sudo sh -c 'printf "AFTERDARK_ADMIN_PASSWORD=%s\n" "your-secret-password" > /etc/homechat/homechat.env'
+sudo chown root:root /etc/homechat/homechat.env
+sudo chmod 600 /etc/homechat/homechat.env
+```
+
+### 2. Create the service file
+
+Create `/etc/systemd/system/homechat.service`:
+
+```ini
+[Unit]
+Description=homeChat
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/env node /opt/homeChat/server.js
+WorkingDirectory=/opt/homeChat
+Restart=on-failure
+RestartSec=5
+User=pi
+EnvironmentFile=/etc/homechat/homechat.env
+
+[Install]
+WantedBy=multi-user.target
+```
+
+If `node` is not found by systemd, replace `ExecStart` with an absolute path from `which node` (for example `/usr/bin/node` or `/usr/local/node20/bin/node`). Also replace `/opt/homeChat` with your app path, and `pi` with your username.
+
+### 3. Enable and start
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable homechat
+sudo systemctl start homechat
+```
+
+### Useful commands
+
+| Task           | Command                           |
+| -------------- | --------------------------------- |
+| Check status   | `systemctl status homechat`       |
+| View live logs | `journalctl -u homechat -f`       |
+| Restart        | `sudo systemctl restart homechat` |
+| Stop           | `sudo systemctl stop homechat`    |
+
 ## Notes
 
 - the browser client is the main polished experience
