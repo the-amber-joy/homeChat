@@ -116,6 +116,37 @@ You can also use a full URL such as `http://home.local:3010`.
 
 For an always-on Pi the recommended way to manage the server is **systemd** — it's already on Raspbian, uses no extra RAM, and handles autostart on boot.
 
+### Automated setup script (recommended)
+
+This repo includes a setup script that handles:
+
+- installing Node by Pi architecture (official for armv7/aarch64, unofficial for armv6)
+- deploying Home Chat to `/opt/homeChat`
+- installing production dependencies
+- securely prompting for `AFTERDARK_ADMIN_PASSWORD`
+- creating and starting `homechat.service`
+
+Run on the Pi from the project root:
+
+```bash
+./scripts/pi-setup.sh
+```
+
+Useful options:
+
+- `--dry-run` preview changes without modifying the system
+- `--yes` non-interactive mode (set `AFTERDARK_ADMIN_PASSWORD` in env)
+- `--app-dir /custom/path` use a non-default app directory
+- `--user momb` choose the runtime service user
+
+Example non-interactive run:
+
+```bash
+AFTERDARK_ADMIN_PASSWORD='your-secret-password' ./scripts/pi-setup.sh --yes
+```
+
+Manual setup steps are below if you prefer to configure systemd yourself.
+
 ### 1. Create a private env file for Home Chat
 
 Use a dedicated file instead of `/etc/environment` so the password is not globally exposed:
