@@ -2,6 +2,7 @@ var socketio = require("socket.io");
 var http = require("http");
 var fs = require("fs");
 var path = require("path");
+const https = require('https');
 
 // After Dark admin password from environment variable
 var AFTERDARK_ADMIN_PASSWORD = process.env.AFTERDARK_ADMIN_PASSWORD || null;
@@ -97,8 +98,13 @@ function getAvailableAsciiArt() {
   return [];
 }
 
-// Create HTTP server and Socket.IO instance
-var server = http.createServer(function (req, res) {
+const options = { 
+	key: fs.readFileSync('private-key.pem'), 
+	cert: fs.readFileSync('certificate.crt')
+}; 
+
+// Create HTTPS server and Socket.IO instance
+var server = https.createServer(options, function (req, res) {
   if (req.url === "/" || req.url === "/index.html") {
     fs.readFile(path.join(__dirname, "index.html"), function (err, data) {
       if (err) {
